@@ -3,6 +3,7 @@
 | 版本 | 日期 | 作者 | 变更说明 |
 |------|------|------|----------|
 | 1.0 | 2026-05-01 | - | 初始版本，定义所有公共数据类型与核心接口 |
+| 1.1 | 2026-05-02 | - | 同步代码审查修复：移除 from_extensions、增加 Float 有限性约束、as_float 精度校验、LogLevel 枚举、validate 方法、register 返回 Result |
 
 ## 1. 模块概述
 
@@ -58,21 +59,35 @@ src/core/
 ```rust
 use serde::{Deserialize, Serialize};
 
+/// 精确可表示为 f64 的最大 i64 绝对值 (2^53 = 9007199254740992)
+const EXACT_F64_MAX_I64: i64 = 1i64 << 53;
+
 /// 单个状态值的标记联合体，统一承载整型、浮点型和布尔型数据。
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum FrameState {
     /// 有符号 64 位整数（可表示离散状态、符号索引等）
     Integer(i64),
     /// 64 位浮点数（连续系统的状态变量）
+    ///
+    /// # 不变量
+    /// 该变体必须持有有限值（非 NaN、非 ±Infinity）。
+    /// 请使用 [`FrameState::float`] 构造以确保该约束。
     Float(f64),
     /// 布尔值（二值网格元胞等）
     Bool(bool),
 }
 
 impl FrameState {
+    /// 创建有限浮点数值，拒绝 NaN 和 ±Infinity。
+    ///
+    /// # Errors
+    /// 当值为非有限数（NaN 或 ±Infinity）时返回 `CoreError::InvalidParams`。
+    pub fn float(value: f64) -> Result<Self, CoreError> { /* ... */ }
     /// 尝试将值解释为 i64，失败返回 None。
     pub fn as_integer(&self) -> Option<i64> { /* ... */ }
     /// 尝试将值解释为 f64，失败返回 None。
+    /// 对于 Integer 变体，仅当值在 [-2^53, 2^53] 范围内时返回 Some，
+    /// 超出此范围的整数无法精确表示为 f64，返回 None。
     pub fn as_float(&self) -> Option<f64> { /* ... */ }
     /// 尝试将值解释为 bool，失败返回 None。
     pub fn as_bool(&self) -> Option<bool> { /* ... */ }
@@ -83,6 +98,8 @@ impl FrameState {
 
 **设计说明**：
 - 使用 `i64` 而非更小整数类型，是因为后处理管道中的标准化器会将浮点数映射到 0–255 或更大范围，`i64` 可直接承载且与 `f64` 同宽。
+- `Float` 变体持有**有限性不变量**：NaN 和 ±Infinity 会导致 `serde_json` 将其序列化为 `null`，破坏 JSON 往返一致性。生成器应通过 `FrameState::float()` 受检构造函数创建浮点值，而非直接使用 `FrameState::Float(v)`。
+- `as_float()` 对 `Integer` 变体执行**精确范围检查**：仅当 `|v| ≤ 2^53` 时返回 `Some(v as f64)`，超出此范围的整数无法无损转换为 f64，返回 `None` 以防止静默精度丢失。
 - 提供 `as_` 方法族供下游模块（如 sink 的文本输出）安全取出原始值，避免模式匹配散落各处。
 
 ### 4.2 FrameData —— 帧状态向量
@@ -98,14 +115,19 @@ pub struct FrameData {
 impl FrameData {
     /// 创建空的帧数据。
     pub fn new() -> Self { /* ... */ }
-    /// 从迭代器构建帧数据。
-    pub fn from_iter<I: IntoIterator<Item = FrameState>>(iter: I) -> Self { /* ... */ }
     /// 状态维度（values 长度）。
     pub fn dim(&self) -> usize { self.values.len() }
     /// 判断是否为空帧。
     pub fn is_empty(&self) -> bool { self.values.is_empty() }
 }
+
+impl FromIterator<FrameState> for FrameData {
+    fn from_iter<I: IntoIterator<Item = FrameState>>(iter: I) -> Self { /* ... */ }
+}
 ```
+
+**设计说明**：
+- `FrameData` 实现标准 `FromIterator` trait，支持 `FrameData::from_iter([...])` 调用语法以及 `.collect::<FrameData>()` 惯用写法。
 
 ### 4.3 SequenceFrame —— 时序帧
 
@@ -165,18 +187,31 @@ impl GenParams {
 }
 ```
 
-### 4.5 输出格式与全局配置
+### 4.5 输出格式、日志级别与全局配置
 
 ```rust
 /// 输出文件格式枚举。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OutputFormat {
     /// Apache Parquet 列式存储。
+    #[default]
     Parquet,
     /// 纯文本（令牌映射后的 Unicode 序列）。
     Text,
     /// 内存映射二进制原始转储。
     Binary,
+}
+
+/// 日志级别枚举。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LogLevel {
+    Trace,
+    Debug,
+    #[default]
+    Info,
+    Warn,
+    Error,
 }
 
 /// 全局配置，适用于整个运行而非单个任务。
@@ -188,43 +223,68 @@ pub struct GlobalConfig {
     pub default_format: OutputFormat,
     /// 输出根目录。
     pub output_dir: String,
-    /// 日志级别："trace" | "debug" | "info" | "warn" | "error"。
-    pub log_level: String,
+    /// 日志级别。
+    pub log_level: LogLevel,
     /// 每个输出分片文件的最大序列数，超出后自动切分。
     pub shard_max_sequences: usize,
     /// 流式写出模式（true） vs 阻塞收集模式（false）。
     pub stream_write: bool,
 }
+
+impl GlobalConfig {
+    /// 校验配置的合法性。
+    ///
+    /// # Errors
+    /// 当配置项不合法时返回 `CoreError::ConfigError`，包括：
+    /// - `num_threads` 为 `Some(0)`
+    /// - `output_dir` 为空字符串
+    /// - `shard_max_sequences` 为 0
+    pub fn validate(&self) -> Result<(), CoreError> { /* ... */ }
+}
+
+/// 二维网格尺寸。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GridSize {
+    pub rows: usize,
+    pub cols: usize,
+}
+
+impl GridSize {
+    /// 校验网格尺寸的合法性。
+    ///
+    /// # Errors
+    /// 当 rows 或 cols 为 0 时返回 `CoreError::InvalidParams`。
+    pub fn validate(&self) -> Result<(), CoreError> { /* ... */ }
+}
 ```
+
+**设计说明**：
+- `LogLevel` 采用枚举而非自由字符串，在类型层面排除无效日志级别（如 `"banana"`），`#[serde(rename_all = "lowercase")]` 使 JSON 中为小写形式（`"trace"`、`"debug"` 等），与 YAML 配置文件中的习惯一致。
+- `GlobalConfig::validate()` 和 `GridSize::validate()` 提供显式校验入口，应在 CLI 参数解析和调度器构造时调用，将配置错误尽早暴露。
 
 ### 4.6 Generator trait —— 生成器接口
 
 ```rust
-use std::collections::HashMap;
-use serde_json::Value;
-
 /// 生成器抽象接口。所有具体生成器必须实现此 trait。
 ///
 /// 该 trait 要求实现者为 `Send + Sync`，确保实例可在 rayon 线程间安全共享。
+///
+/// 生成器的构造不通过 trait 方法完成，而是通过注册在 `GeneratorRegistry`
+/// 中的工厂函数进行。每个生成器模块应提供一个符合 `GeneratorFactory`
+/// 签名的构造函数，并在注册表中注册。
 pub trait Generator: Send + Sync {
     /// 返回该生成器的唯一标识名称，如 "cellular_automaton"、"lorenz_system"。
     fn name(&self) -> &'static str;
-
-    /// 从通用参数的扩展字段中反序列化自己的特有配置，构造生成器实例。
-    ///
-    /// # Arguments
-    /// * `extensions` - GenParams.extensions 字段的引用。
-    ///
-    /// # Errors
-    /// 当扩展字段缺失必要配置或配置不合法时，返回 `CoreError::InvalidParams`。
-    fn from_extensions(extensions: &HashMap<String, Value>) -> Result<Self>
-    where
-        Self: Sized;
 
     /// 流式生成（推荐模式）。返回一个惰性迭代器，按时间步产出 `SequenceFrame`。
     ///
     /// 迭代器在 `Some(seq_length)` 时最多产出 `seq_length` 个帧；
     /// 当 `seq_length == 0` 时无限产出，由调用方控制消费数量。
+    ///
+    /// # 生命周期约束
+    /// 返回的迭代器具有 `'static` 生命周期，即不能借用 `&self` 或 `params`。
+    /// 生成器实现需将必要状态克隆或移入迭代器闭包中。该约束使得迭代器
+    /// 可安全地跨 rayon 线程传递，无需关心借用的生命周期。
     ///
     /// # Arguments
     /// * `seed` - 确定性随机种子，决定初始状态和随机性注入。
@@ -237,15 +297,25 @@ pub trait Generator: Send + Sync {
 
     /// 批量生成（同步糖）。内部调用 `generate_stream` 并收集为 `Vec`。
     /// 仅适用于中小规模数据；大规模请使用流式接口。
+    /// 要求 `params.seq_length > 0`，否则返回错误（因为无限流无法收集为 Vec）。
     ///
     /// # Arguments
     /// * `seed` - 确定性随机种子。
     /// * `params` - 通用参数。
+    ///
+    /// # Errors
+    /// 当 `params.seq_length == 0` 时返回 `CoreError::InvalidParams`。
     fn generate_batch(
         &self,
         seed: u64,
         params: &GenParams,
     ) -> Result<Vec<SequenceFrame>, CoreError> {
+        if params.seq_length == 0 {
+            return Err(CoreError::InvalidParams(
+                "generate_batch requires seq_length > 0; \
+                 use generate_stream for unbounded generation".into(),
+            ));
+        }
         self.generate_stream(seed, params)
             .map(|iter| iter.collect())
     }
@@ -255,20 +325,20 @@ pub trait Generator: Send + Sync {
 **接口说明**：
 - `generate_stream` 是核心方法，`generate_batch` 有默认实现作为语法糖。
 - 迭代器的 `Item` 是 `SequenceFrame`（非 `Result<SequenceFrame, _>`），因为生成过程中的错误应在迭代器内部处理为提前终止（返回 `None`）或通过 `Result` 在外层捕获。
-- 迭代器标注 `+ Send`，确保可跨线程传输。
+- 迭代器标注 `+ Send`，确保可跨线程传输。返回的迭代器具有 `'static` 生命周期，实现者需将所需状态克隆到闭包中，而非借用 `&self`。
+- `generate_batch` 在 `seq_length == 0` 时返回 `InvalidParams` 错误，防止对无限流调用 `.collect()` 导致 OOM。
+- 生成器的构造**不通过 trait 方法**完成（已移除 `from_extensions`），而是统一通过 `GeneratorRegistry` 中的工厂函数进行。这消除了 trait 静态方法（`where Self: Sized`）与 trait 对象（`dyn Generator`）之间的割裂。
 
 ### 4.7 GeneratorRegistry —— 生成器注册表
 
 ```rust
-use std::sync::Arc;
-
 /// 生成器构造函数类型：接受 extensions 映射，返回 Generator trait 对象。
-pub type GeneratorFactory = fn(&HashMap<String, Value>) -> Result<Box<dyn Generator>, CoreError>;
+pub type GeneratorFactory = fn(&HashMap<String, Value>) -> CoreResult<Box<dyn Generator>>;
 
 /// 生成器的全局注册表。采用名称→构造函数的静态映射。
 ///
 /// 所有生成器在程序启动时通过 `register` 方法注册自身。
-/// 调度器通过 `get` 方法按名称查找构造函数并实例化生成器。
+/// 调度器通过 `instantiate` 方法按名称查找构造函数并实例化生成器。
 #[derive(Default)]
 pub struct GeneratorRegistry {
     factories: HashMap<&'static str, GeneratorFactory>,
@@ -280,9 +350,9 @@ impl GeneratorRegistry {
 
     /// 注册一个生成器构造函数。
     ///
-    /// # Panics
-    /// 当名称已存在时 panic（编译时发现问题，不应运行时静默覆盖）。
-    pub fn register(&mut self, name: &'static str, factory: GeneratorFactory) { /* ... */ }
+    /// # Errors
+    /// 当名称已存在时返回 `CoreError::InvalidParams`，防止重复注册导致静默覆盖。
+    pub fn register(&mut self, name: &'static str, factory: GeneratorFactory) -> CoreResult<()> { /* ... */ }
 
     /// 按名称实例化一个生成器。
     ///
@@ -292,7 +362,7 @@ impl GeneratorRegistry {
         &self,
         name: &str,
         extensions: &HashMap<String, Value>,
-    ) -> Result<Box<dyn Generator>, CoreError> { /* ... */ }
+    ) -> CoreResult<Box<dyn Generator>> { /* ... */ }
 
     /// 列出所有已注册的生成器名称。
     pub fn list_names(&self) -> Vec<&'static str> { /* ... */ }
@@ -301,6 +371,10 @@ impl GeneratorRegistry {
     pub fn contains(&self, name: &str) -> bool { /* ... */ }
 }
 ```
+
+**设计说明**：
+- `register()` 返回 `CoreResult<()>` 而非 panic，使调用方可以在运行时决定如何处理重复注册（如记录警告、跳过或终止），而非直接崩溃。对于插件化场景尤为关键。
+- `GeneratorFactory` 和 `instantiate()` 统一使用 `CoreResult<T>` 类型别名，与全系统错误类型一致。
 
 ### 4.8 错误类型定义
 
@@ -365,7 +439,8 @@ pub type CoreResult<T> = Result<T, CoreError>;
 
 ```
 FrameState::Integer(v) → as_integer() → Some(v)
-                       → as_float()   → Some(v as f64)   // 无损转换
+                       → as_float()   → Some(v as f64)   仅当 |v| ≤ 2^53
+                                        None              当 |v| > 2^53（精度丢失风险）
                        → as_bool()    → Some(v != 0)
 
 FrameState::Float(v)   → as_integer() → None              // 有损，不自动转换
@@ -378,17 +453,18 @@ FrameState::Bool(v)    → as_integer() → Some(v as i64)    // 0 或 1
 ```
 
 设计原则：
-- 整数→浮点：安全，无损。
+- 整数→浮点：条件安全，仅当值在 f64 精确表示范围（`[-2^53, 2^53]`）内时转换；超出则返回 `None`，防止静默精度丢失。
 - 浮点→整数：不自动转换，防止精度静默丢失（需要标准化器显式处理）。
 - 布尔→数值：安全，0/1 映射。
+- Float 有限性：`FrameState::float()` 构造函数拒绝 NaN 和 ±Infinity，确保 `serde_json` 序列化的 JSON 往返一致性。直接使用 `FrameState::Float(v)` 绕过检查时，非有限值将被 `serde_json` 序列化为 `null`，反序列化时会失败。
 
 ### 5.2 GeneratorRegistry 的注册与查找流程
 
 ```
 程序启动
   ↓
-各生成器模块调用 registry.register("ca", ca_generator::from_extensions)
-  ↓
+各生成器模块调用 registry.register("ca", ca_factory)?
+  ↓ 重复名称时返回 Err(InvalidParams)，调用方可选择终止或跳过
 [HashMap<&str, GeneratorFactory> 建立完毕]
   ↓
 Scheduler 调用 registry.instantiate("ca", extensions)
@@ -396,6 +472,8 @@ Scheduler 调用 registry.instantiate("ca", extensions)
 查找 factories["ca"] → 存在 → 调用 factory(extensions) → Ok(Box<dyn Generator>)
                       → 不存在 → Err(GeneratorNotFound("ca"))
 ```
+
+**注意**：`register()` 返回 `CoreResult<()>`，不再 panic。调用方应在注册阶段处理可能的重复名称错误。
 
 ### 5.3 GenParams 扩展字段的序列化协议
 
@@ -412,9 +490,11 @@ YAML 清单中:
 
 GenParams.extensions["ca"] = Value::Object({...})
   ↓
-ca_generator::from_extensions(extensions)
+registry.instantiate("ca", extensions) → 调用 ca_factory(extensions)
   ↓
-let ca_config: CAConfig = ext.get("ca").and_then(|v| serde_json::from_value(v))?;
+ca_factory 内部：
+  let ca_config: CAConfig = serde_json::from_value(extensions["ca"].clone())?;
+  Ok(Box::new(CAGenerator::new(ca_config)))
 ```
 
 ## 6. 与其他模块的交互
@@ -503,6 +583,21 @@ mod tests {
     }
 
     #[test]
+    fn test_frame_state_float_checked_constructor() {
+        assert!(FrameState::float(3.14).is_ok());
+        assert!(FrameState::float(f64::NAN).is_err());
+        assert!(FrameState::float(f64::INFINITY).is_err());
+    }
+
+    #[test]
+    fn test_as_float_large_integer() {
+        // 在 2^53 范围内
+        assert!(FrameState::Integer(1i64 << 53).as_float().is_some());
+        // 超出 2^53 范围
+        assert!(FrameState::Integer((1i64 << 53) + 1).as_float().is_none());
+    }
+
+    #[test]
     fn test_gen_params_extension_roundtrip() {
         let mut params = GenParams::simple(100);
         params.set_extension("rule", &110u32).unwrap();
@@ -513,7 +608,8 @@ mod tests {
     #[test]
     fn test_registry_register_and_instantiate() {
         let mut reg = GeneratorRegistry::new();
-        // 注册和查找的测试...
+        reg.register("mock", mock_factory).unwrap();
+        assert!(reg.instantiate("mock", &HashMap::new()).is_ok());
     }
 
     #[test]
@@ -524,8 +620,41 @@ mod tests {
     }
 
     #[test]
-    fn test_registry_duplicate_panics() {
-        // 验证重复注册同一名称会 panic
+    fn test_registry_duplicate_returns_error() {
+        let mut reg = GeneratorRegistry::new();
+        reg.register("mock", mock_factory).unwrap();
+        let result = reg.register("mock", mock_factory);
+        assert!(matches!(result, Err(CoreError::InvalidParams(_))));
+    }
+
+    #[test]
+    fn test_generator_batch_zero_length_rejected() {
+        let gen = MockGenerator;
+        let params = GenParams::simple(0);
+        assert!(matches!(
+            gen.generate_batch(0, &params),
+            Err(CoreError::InvalidParams(_))
+        ));
+    }
+
+    #[test]
+    fn test_global_config_validate() {
+        let config = GlobalConfig {
+            output_dir: "./out".into(),
+            ..Default::default()
+        };
+        assert!(config.validate().is_ok());
+        // 无效：num_threads = Some(0)
+        let bad = GlobalConfig { num_threads: Some(0), ..config.clone() };
+        assert!(bad.validate().is_err());
+    }
+
+    #[test]
+    fn test_log_level_deserialization() {
+        let level: LogLevel = serde_json::from_value(json!("debug")).unwrap();
+        assert_eq!(level, LogLevel::Debug);
+        // 无效字符串
+        assert!(serde_json::from_value::<LogLevel>(json!("banana")).is_err());
     }
 }
 ```
@@ -535,6 +664,8 @@ mod tests {
 - 使用 core 类型构建一个最小化的 mock 生成器，验证 trait 接口可被正常实现。
 - 验证 `GeneratorRegistry` 的并发安全性（多线程同时读取）。
 - 验证 JSON 扩展字段对各类参数类型的序列化/反序列化正确性。
+- 验证 `FrameState::Float(NaN)` 经 serde_json 序列化为 `null` 后，反序列化失败（确认有限性约束的必要性）。
+- 验证 `GlobalConfig::validate()` 对各非法配置项的拦截。
 
 ## 10. 配置与参数
 
@@ -544,8 +675,9 @@ core 模块自身不读取配置文件中的参数。它定义的数据类型被
 |------|-----------|----------|
 | `GlobalConfig` | CLI 模块（解析命令行参数） | 命令行参数 + 默认值 |
 | `OutputFormat` | CLI 模块、Scheduler 模块 | 命令行 `--format` 参数 |
+| `LogLevel` | CLI 模块、日志初始化 | 命令行 `--log-level` 参数 |
 | `GenParams` | Scheduler 模块（构造任务参数） | YAML 清单中的任务定义 |
-| `GridSize` | 各生成器模块 | GenParams.extensions |
+| `GridSize` | 各生成器模块 | GenParams.grid_size 或 extensions |
 
 ---
 

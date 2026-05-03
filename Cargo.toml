@@ -7,3 +7,9 @@ edition = "2021"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "1"
+arrow = "53"
+parquet = { version = "53", features = ["arrow"] }
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = "3"
