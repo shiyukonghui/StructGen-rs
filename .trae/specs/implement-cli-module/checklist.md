@@ -1,0 +1,34 @@
+# Checklist: CLI模块与端到端集成
+
+- [x] `Cargo.toml` 包含 `clap = { version = "4", features = ["derive"] }` 依赖
+- [x] `Cargo.toml` 包含 `[[bin]]` 节，name = "structgen-rs"
+- [x] `CliArgs` 结构体定义正确，包含全部 7 个命令行参数
+- [x] `CliFormat` 枚举实现 `clap::ValueEnum` 和 `From<CliFormat> for OutputFormat`
+- [x] `create_adapter()` 工厂函数正确映射三种 OutputFormat 到对应适配器
+- [x] `main()` 函数设置 panic hook
+- [x] `main()` 调用 `run()` 并以退出码退出进程
+- [x] `run()` 按设计文档 16 步流程正确编排所有模块
+- [x] 清单文件不存在时打印 "manifest file not found" 错误并返回退出码 2
+- [x] YAML 解析失败时打印 "YAML parse error" 错误并返回退出码 2
+- [x] 命令行参数正确覆盖清单 global 配置（output_dir、format、num_threads、stream_write）
+- [x] rayon 全局线程池在调用 run_manifest 前正确设置（使用 Once 幂等）
+- [x] 生成器注册表和处理器注册表正确初始化并注册所有内置实现
+- [x] manifest.validate() 在校验注册表后执行
+- [x] 输出目录在 run_manifest 前创建
+- [x] ProgressTracker 正确创建并传入进度显示线程
+- [x] 进度显示线程在 --no-progress 时被跳过
+- [x] scheduler::run_manifest() 正确调用并传递 create_adapter 工厂
+- [x] metadata::write_metadata() 在调度完成后被调用
+- [x] metadata.json 写入失败时打印警告但不中断流程
+- [x] 汇总报告格式化正确：版本号、输出目录、耗时、逐任务统计、总计行
+- [x] 退出码逻辑：全成功=0，部分失败=1，全失败/启动错误=2
+- [x] 进度条格式化正确：百分比、采样数、帧数、ETA
+- [x] 进度条在非 TTY 环境下降级为每 5 秒日志
+- [x] CliArgs 解析单元测试通过（最简参数、完整参数）
+- [x] 端到端测试通过：demo YAML → 产出数据文件 + metadata.json
+- [x] 退出码测试通过：全成功=0
+- [x] 退出码测试通过：部分失败=1
+- [x] 退出码测试通过：清单不存在=2
+- [x] `cargo test` 全部测试通过（286 passed, 0 failed）
+- [x] `cargo clippy` 无实质性警告（仅预存警告）
+- [x] `cargo build` 编译成功
