@@ -1,0 +1,136 @@
+name: CI
+
+# 触发条件：推送到 main/master 分支、Pull Request
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # 代码格式检查（仅 ubuntu 运行一次即可，避免冗余）
+  fmt:
+    name: 代码格式检查
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Rust 稳定版工具链
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: 缓存 Cargo 依赖
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-fmt-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-fmt-
+
+      - name: 运行 cargo fmt 检查
+        run: cargo fmt --all -- --check
+
+  # Clippy 静态分析（仅 ubuntu 运行一次即可）
+  clippy:
+    name: Clippy 静态分析
+    runs-on: ubuntu-latest
+    needs: fmt
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Rust 稳定版工具链
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: 缓存 Cargo 依赖
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-clippy-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-clippy-
+
+      - name: 运行 cargo clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+  # 编译与测试（多平台矩阵）
+  build_and_test:
+    name: 编译与测试 (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: clippy
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Rust 稳定版工具链
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 缓存 Cargo 依赖
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-build-
+
+      - name: 编译检查（cargo check）
+        run: cargo check --verbose
+
+      - name: 编译（cargo build）
+        run: cargo build --verbose
+
+      - name: 运行测试（cargo test）
+        run: cargo test --verbose
+
+  # 测试覆盖率（仅 ubuntu 运行）
+  coverage:
+    name: 测试覆盖率
+    runs-on: ubuntu-latest
+    needs: build_and_test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Rust 稳定版工具链
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 缓存 Cargo 依赖
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-coverage-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-coverage-
+
+      - name: 安装 cargo-tarpaulin
+        uses: taiki-e/install-action@cargo-tarpaulin
+
+      - name: 运行测试覆盖率
+        run: cargo tarpaulin --out Xml --output-dir coverage
+
+      - name: 上传覆盖率报告到 Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage/cobertura.xml
+          fail_ci_if_error: false
