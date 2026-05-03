@@ -1,0 +1,12 @@
+global:
+  output_dir: "tests/output/gen_lsystem"
+  default_format: "Text"
+tasks:
+  - name: "lsystem_test"
+    generator: "lsystem"
+    params:
+      seq_length: 50
+    count: 5
+    seed: 42
+    pipeline: []
+    output_format: "Text"

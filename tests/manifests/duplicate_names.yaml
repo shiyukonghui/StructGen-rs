@@ -1,0 +1,15 @@
+global:
+  output_dir: "tests/output/dup_names"
+tasks:
+  - name: "same_name"
+    generator: "ca"
+    params:
+      seq_length: 10
+    count: 10
+    seed: 1
+  - name: "same_name"
+    generator: "lorenz"
+    params:
+      seq_length: 10
+    count: 10
+    seed: 2

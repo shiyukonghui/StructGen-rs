@@ -1,0 +1,15 @@
+global:
+  output_dir: "tests/output/gen_ca"
+  default_format: "Text"
+tasks:
+  - name: "ca_test"
+    generator: "ca"
+    params:
+      seq_length: 50
+      extensions:
+        rule: 30
+        width: 64
+    count: 5
+    seed: 42
+    pipeline: []
+    output_format: "Text"

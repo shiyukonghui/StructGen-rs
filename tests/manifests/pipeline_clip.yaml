@@ -1,0 +1,14 @@
+global:
+  output_dir: "tests/output/pipeline_clip"
+  default_format: "Text"
+tasks:
+  - name: "clip_test"
+    generator: "ca"
+    params:
+      seq_length: 50
+      extensions:
+        rule: 30
+    count: 3
+    seed: 42
+    pipeline: ["clip_stitcher"]
+    output_format: "Text"

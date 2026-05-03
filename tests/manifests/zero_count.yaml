@@ -1,0 +1,9 @@
+global:
+  output_dir: "tests/output/zero_count"
+tasks:
+  - name: "bad_task"
+    generator: "ca"
+    params:
+      seq_length: 10
+    count: 0
+    seed: 42

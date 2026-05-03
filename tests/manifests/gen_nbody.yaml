@@ -1,0 +1,16 @@
+global:
+  output_dir: "tests/output/gen_nbody"
+  default_format: "Text"
+tasks:
+  - name: "nbody_test"
+    generator: "nbody"
+    params:
+      seq_length: 50
+      extensions:
+        num_bodies: 3
+        dt: 0.01
+        softening: 0.1
+    count: 5
+    seed: 42
+    pipeline: []
+    output_format: "Text"

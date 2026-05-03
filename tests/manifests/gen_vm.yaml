@@ -1,0 +1,12 @@
+global:
+  output_dir: "tests/output/gen_vm"
+  default_format: "Text"
+tasks:
+  - name: "vm_test"
+    generator: "algorithm_vm"
+    params:
+      seq_length: 50
+    count: 5
+    seed: 42
+    pipeline: []
+    output_format: "Text"

@@ -1,0 +1,14 @@
+global:
+  output_dir: "tests/output/format_binary"
+  default_format: "Binary"
+tasks:
+  - name: "binary_test"
+    generator: "ca"
+    params:
+      seq_length: 30
+      extensions:
+        rule: 30
+    count: 5
+    seed: 42
+    pipeline: []
+    output_format: "Binary"

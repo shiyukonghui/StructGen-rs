@@ -1,0 +1,3 @@
+global:
+  output_dir: "tests/output/empty_tasks"
+tasks: []

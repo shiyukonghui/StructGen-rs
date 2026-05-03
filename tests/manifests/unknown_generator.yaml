@@ -1,0 +1,9 @@
+global:
+  output_dir: "tests/output/unknown_gen"
+tasks:
+  - name: "bad_task"
+    generator: "nonexistent_generator"
+    params:
+      seq_length: 10
+    count: 10
+    seed: 42

@@ -1,0 +1,14 @@
+global:
+  output_dir: "tests/output/format_parquet"
+  default_format: "Parquet"
+tasks:
+  - name: "parquet_test"
+    generator: "ca"
+    params:
+      seq_length: 30
+      extensions:
+        rule: 30
+    count: 5
+    seed: 42
+    pipeline: []
+    output_format: "Parquet"

@@ -1,0 +1,14 @@
+global:
+  output_dir: "tests/output/gen_grammar"
+  default_format: "Text"
+tasks:
+  - name: "grammar_test"
+    generator: "formal_grammar"
+    params:
+      seq_length: 50
+      extensions:
+        max_derivations: 50
+    count: 5
+    seed: 42
+    pipeline: []
+    output_format: "Text"

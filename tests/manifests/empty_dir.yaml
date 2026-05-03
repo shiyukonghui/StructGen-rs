@@ -1,0 +1,9 @@
+global:
+  output_dir: ""
+tasks:
+  - name: "test_task"
+    generator: "ca"
+    params:
+      seq_length: 10
+    count: 10
+    seed: 42

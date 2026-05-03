@@ -1,0 +1,16 @@
+global:
+  output_dir: "tests/output/pipeline_normalize"
+  default_format: "Text"
+tasks:
+  - name: "normalize_only"
+    generator: "lorenz_system"
+    params:
+      seq_length: 30
+      extensions:
+        sigma: 10.0
+        rho: 28.0
+        beta: 2.667
+    count: 5
+    seed: 42
+    pipeline: ["normalizer"]
+    output_format: "Text"

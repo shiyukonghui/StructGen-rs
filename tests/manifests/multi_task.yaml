@@ -1,0 +1,38 @@
+global:
+  output_dir: "tests/output/multi_task"
+  default_format: "Text"
+tasks:
+  - name: "ca_task"
+    generator: "ca"
+    params:
+      seq_length: 20
+      extensions:
+        rule: 30
+    count: 5
+    seed: 100
+    pipeline: []
+    output_format: "Text"
+
+  - name: "lorenz_task"
+    generator: "lorenz_system"
+    params:
+      seq_length: 20
+      extensions:
+        sigma: 10.0
+        rho: 28.0
+        beta: 2.667
+    count: 5
+    seed: 200
+    pipeline: []
+    output_format: "Text"
+
+  - name: "logistic_task"
+    generator: "logistic_map"
+    params:
+      seq_length: 20
+      extensions:
+        r: 3.9
+    count: 5
+    seed: 300
+    pipeline: []
+    output_format: "Text"

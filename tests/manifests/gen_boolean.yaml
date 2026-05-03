@@ -1,0 +1,14 @@
+global:
+  output_dir: "tests/output/gen_boolean"
+  default_format: "Text"
+tasks:
+  - name: "boolean_test"
+    generator: "boolean_network"
+    params:
+      seq_length: 50
+      extensions:
+        num_nodes: 16
+    count: 5
+    seed: 42
+    pipeline: []
+    output_format: "Text"
