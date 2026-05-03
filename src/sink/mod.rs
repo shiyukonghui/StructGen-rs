@@ -14,7 +14,7 @@ pub mod parquet;
 pub mod text;
 
 // 重导出适配器类型
-pub use adapter::{format_output_filename, OutputConfig, SinkAdapter};
+pub use adapter::{format_output_filename, OutputConfig, OutputStats, SinkAdapter};
 // 重导出工厂类型
 pub use factory::SinkAdapterFactory;
 // 重导出具体适配器实现
