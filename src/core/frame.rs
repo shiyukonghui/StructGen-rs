@@ -6,10 +6,6 @@ use super::error::CoreError;
 const EXACT_F64_MAX_I64: i64 = 1i64 << 53;
 
 /// 单个状态值的标记联合体，统一承载整型、浮点型和布尔型数据
-///
-/// # 不变量
-/// `Float` 变体必须持有有限值（非 NaN、非 ±Infinity）。
-/// 外部构造应使用 [`FrameState::float`] 或 [`FrameState::float_or_zero`] 方法。
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum FrameState {
     /// 有符号 64 位整数（可表示离散状态、符号索引等）
@@ -18,7 +14,7 @@ pub enum FrameState {
     ///
     /// # 不变量
     /// 该变体必须持有有限值（非 NaN、非 ±Infinity）。
-    /// 请使用 [`FrameState::float`] 或 [`FrameState::float_or_zero`] 构造以确保该约束。
+    /// 请使用 [`FrameState::float`] 构造以确保该约束。
     Float(f64),
     /// 布尔值（二值网格元胞等）
     Bool(bool),
@@ -36,17 +32,6 @@ impl FrameState {
             ));
         }
         Ok(FrameState::Float(value))
-    }
-
-    /// 创建浮点数值，非有限值（NaN、±Infinity）自动替换为 0.0
-    ///
-    /// 适用于生成器流式输出场景：数值发散时不中断流，而是用 0.0 占位。
-    pub fn float_or_zero(value: f64) -> Self {
-        if value.is_finite() {
-            FrameState::Float(value)
-        } else {
-            FrameState::Float(0.0)
-        }
     }
 
     /// 尝试将值解释为 i64
@@ -322,27 +307,6 @@ mod tests {
     fn test_bool_as_float() {
         assert_eq!(FrameState::Bool(true).as_float(), Some(1.0));
         assert_eq!(FrameState::Bool(false).as_float(), Some(0.0));
-    }
-
-    #[test]
-    fn test_float_or_zero_finite() {
-        assert_eq!(FrameState::float_or_zero(3.14), FrameState::Float(3.14));
-    }
-
-    #[test]
-    fn test_float_or_zero_nan() {
-        assert_eq!(FrameState::float_or_zero(f64::NAN), FrameState::Float(0.0));
-    }
-
-    #[test]
-    fn test_float_or_zero_infinity() {
-        assert_eq!(FrameState::float_or_zero(f64::INFINITY), FrameState::Float(0.0));
-        assert_eq!(FrameState::float_or_zero(f64::NEG_INFINITY), FrameState::Float(0.0));
-    }
-
-    #[test]
-    fn test_float_or_zero_zero() {
-        assert_eq!(FrameState::float_or_zero(0.0), FrameState::Float(0.0));
     }
 
     #[test]

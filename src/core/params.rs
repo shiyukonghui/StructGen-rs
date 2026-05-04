@@ -98,7 +98,6 @@ impl GlobalConfig {
 
 /// 生成器的通用参数载体，包含所有生成器共享的字段以及动态扩展
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
 pub struct GenParams {
     /// 目标序列长度（要生成的帧数），0 表示无限制（由外部迭代决定）
     #[serde(default)]
