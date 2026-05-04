@@ -130,18 +130,14 @@ impl Generator for LorenzSystem {
         let mut step_counter: u64 = 0;
 
         let iter = std::iter::from_fn(move || {
-            if seq_limit > 0 && step_counter >= seq_limit as u64 {
-                return None;
-            }
-
             let step = step_counter;
             step_counter += 1;
 
             // 输出当前状态
             let values = vec![
-                FrameState::Float(x),
-                FrameState::Float(y),
-                FrameState::Float(z),
+                FrameState::float_or_zero(x),
+                FrameState::float_or_zero(y),
+                FrameState::float_or_zero(z),
             ];
             let frame = SequenceFrame::new(step, FrameData { values });
 
@@ -166,16 +162,7 @@ impl Generator for LorenzSystem {
 
 /// 洛伦兹系统工厂函数
 pub fn lorenz_factory(extensions: &HashMap<String, Value>) -> CoreResult<Box<dyn Generator>> {
-    let lorenz_params: LorenzParams = if extensions.is_empty() {
-        LorenzParams::default()
-    } else {
-        let obj = serde_json::to_value(extensions).map_err(|e| {
-            CoreError::SerializationError(format!("failed to serialize extensions: {}", e))
-        })?;
-        serde_json::from_value(obj).map_err(|e| {
-            CoreError::SerializationError(format!("failed to deserialize Lorenz params: {}", e))
-        })?
-    };
+    let lorenz_params: LorenzParams = deserialize_extensions(extensions)?;
 
     if lorenz_params.dt <= 0.0 {
         return Err(CoreError::InvalidParams(

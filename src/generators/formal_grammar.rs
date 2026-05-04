@@ -70,10 +70,9 @@ impl Generator for FormalGrammar {
 
         let iter = std::iter::from_fn(move || {
             if finished {
-                // 推导完成：继续输出相同结果直到达序列限制
-                if seq_limit > 0 && step_counter >= seq_limit as u64 {
-                    return None;
-                }
+                // 推导完成：继续输出最终推导结果以维持时间序列的连续性。
+                // 这保证下游消费者始终能获得 seq_length 帧的数据，
+                // 即使文法在较早期就完成了所有推导。
                 let step = step_counter;
                 step_counter += 1;
                 let values: Vec<FrameState> = current
@@ -81,10 +80,6 @@ impl Generator for FormalGrammar {
                     .map(|c| FrameState::Integer(c as i64))
                     .collect();
                 return Some(SequenceFrame::new(step, FrameData { values }));
-            }
-
-            if seq_limit > 0 && step_counter >= seq_limit as u64 {
-                return None;
             }
 
             let step = step_counter;
@@ -143,19 +138,7 @@ impl Generator for FormalGrammar {
 pub fn formal_grammar_factory(
     extensions: &HashMap<String, Value>,
 ) -> CoreResult<Box<dyn Generator>> {
-    let fg_params: FormalGrammarParams = if extensions.is_empty() {
-        FormalGrammarParams::default()
-    } else {
-        let obj = serde_json::to_value(extensions).map_err(|e| {
-            CoreError::SerializationError(format!("failed to serialize extensions: {}", e))
-        })?;
-        serde_json::from_value(obj).map_err(|e| {
-            CoreError::SerializationError(format!(
-                "failed to deserialize FormalGrammar params: {}",
-                e
-            ))
-        })?
-    };
+    let fg_params: FormalGrammarParams = deserialize_extensions(extensions)?;
 
     Ok(Box::new(FormalGrammar {
         productions: fg_params.productions,

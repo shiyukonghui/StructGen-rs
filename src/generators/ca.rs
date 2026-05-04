@@ -166,11 +166,6 @@ impl Generator for CellularAutomaton {
 
         // 捕获所有状态到闭包中（move 语义）
         let iter = std::iter::from_fn(move || {
-            // 检查序列长度限制
-            if seq_limit > 0 && step_counter >= seq_limit as u64 {
-                return None;
-            }
-
             let step = step_counter;
             step_counter += 1;
 
@@ -199,16 +194,7 @@ impl Generator for CellularAutomaton {
 
 /// CA 生成器工厂函数
 pub fn ca_factory(extensions: &HashMap<String, Value>) -> CoreResult<Box<dyn Generator>> {
-    let ca_params: CaParams = if extensions.is_empty() {
-        CaParams::default()
-    } else {
-        let obj = serde_json::to_value(extensions).map_err(|e| {
-            CoreError::SerializationError(format!("failed to serialize extensions: {}", e))
-        })?;
-        serde_json::from_value(obj).map_err(|e| {
-            CoreError::SerializationError(format!("failed to deserialize CA params: {}", e))
-        })?
-    };
+    let ca_params: CaParams = deserialize_extensions(extensions)?;
 
     if ca_params.width == 0 {
         return Err(CoreError::InvalidParams(

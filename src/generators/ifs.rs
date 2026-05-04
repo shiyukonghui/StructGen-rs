@@ -88,21 +88,17 @@ impl Generator for Ifs {
         let mut step_counter: u64 = 0;
 
         let iter = std::iter::from_fn(move || {
-            if seq_limit > 0 && step_counter >= seq_limit as u64 {
-                return None;
-            }
-
             let step = step_counter;
             step_counter += 1;
 
             // 输出当前点坐标
-            let values = vec![FrameState::Float(x), FrameState::Float(y)];
+            let values = vec![FrameState::float_or_zero(x), FrameState::float_or_zero(y)];
             let frame = SequenceFrame::new(step, FrameData { values });
 
             // 根据概率选择一个变换
             let r = rng.next_f64();
             let mut cumulative = 0.0;
-            let mut chosen = 0usize;
+            let mut chosen = transforms.len() - 1; // 默认选择最后一个，避免浮点累积误差遗漏
             for (i, t) in transforms.iter().enumerate() {
                 cumulative += t.probability;
                 if r <= cumulative {
@@ -133,16 +129,7 @@ impl Generator for Ifs {
 
 /// IFS 工厂函数
 pub fn ifs_factory(extensions: &HashMap<String, Value>) -> CoreResult<Box<dyn Generator>> {
-    let ifs_params: IFSParams = if extensions.is_empty() {
-        IFSParams::default()
-    } else {
-        let obj = serde_json::to_value(extensions).map_err(|e| {
-            CoreError::SerializationError(format!("failed to serialize extensions: {}", e))
-        })?;
-        serde_json::from_value(obj).map_err(|e| {
-            CoreError::SerializationError(format!("failed to deserialize IFS params: {}", e))
-        })?
-    };
+    let ifs_params: IFSParams = deserialize_extensions(extensions)?;
 
     if ifs_params.num_transforms == 0 {
         return Err(CoreError::InvalidParams(

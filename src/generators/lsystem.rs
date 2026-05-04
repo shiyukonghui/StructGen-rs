@@ -17,6 +17,9 @@ struct LSystemParams {
     /// 迭代次数
     #[serde(default = "default_iterations")]
     iterations: usize,
+    /// 最大字符串长度保护（超出时停止迭代）
+    #[serde(default = "default_max_string_length")]
+    max_string_length: usize,
 }
 
 fn default_axiom() -> String {
@@ -25,6 +28,9 @@ fn default_axiom() -> String {
 fn default_iterations() -> usize {
     5
 }
+fn default_max_string_length() -> usize {
+    1_000_000
+}
 
 impl Default for LSystemParams {
     fn default() -> Self {
@@ -32,6 +38,7 @@ impl Default for LSystemParams {
             axiom: default_axiom(),
             rules: HashMap::new(),
             iterations: default_iterations(),
+            max_string_length: default_max_string_length(),
         }
     }
 }
@@ -44,6 +51,7 @@ pub struct LSystem {
     axiom: String,
     rules: HashMap<char, String>,
     iterations: usize,
+    max_string_length: usize,
 }
 
 impl Generator for LSystem {
@@ -62,10 +70,8 @@ impl Generator for LSystem {
         let max_iterations = self.iterations;
         let axiom = self.axiom.clone();
         let rules = self.rules.clone();
+        let max_string_length = self.max_string_length;
         let seq_limit = params.seq_length;
-
-        // 如果规则为空，使用参数扩展中的规则
-        // 注意：generate_stream 中可获取 params.extensions 中的 rules
 
         let mut step_counter: u64 = 0;
         let mut current = axiom;
@@ -73,10 +79,6 @@ impl Generator for LSystem {
         let mut finished = false;
 
         let iter = std::iter::from_fn(move || {
-            if seq_limit > 0 && step_counter >= seq_limit as u64 {
-                return None;
-            }
-
             if finished {
                 return None;
             }
@@ -91,8 +93,8 @@ impl Generator for LSystem {
                 .collect();
             let frame = SequenceFrame::new(step, FrameData { values });
 
-            // 执行替换（除非已达到最大迭代次数）
-            if rules_applied < max_iterations {
+            // 执行替换（除非已达到最大迭代次数或字符串长度限制）
+            if rules_applied < max_iterations && current.len() < max_string_length {
                 let mut next = String::new();
                 for ch in current.chars() {
                     if let Some(replacement) = rules.get(&ch) {
@@ -100,6 +102,10 @@ impl Generator for LSystem {
                     } else {
                         next.push(ch);
                     }
+                }
+                // 替换后超长也停止后续迭代
+                if next.len() > max_string_length {
+                    finished = true;
                 }
                 current = next;
                 rules_applied += 1;
@@ -122,19 +128,7 @@ impl Generator for LSystem {
 
 /// L 系统工厂函数
 pub fn lsystem_factory(extensions: &HashMap<String, Value>) -> CoreResult<Box<dyn Generator>> {
-    let lsystem_params: LSystemParams = if extensions.is_empty() {
-        LSystemParams::default()
-    } else {
-        let obj = serde_json::to_value(extensions).map_err(|e| {
-            CoreError::SerializationError(format!("failed to serialize extensions: {}", e))
-        })?;
-        serde_json::from_value(obj).map_err(|e| {
-            CoreError::SerializationError(format!(
-                "failed to deserialize LSystem params: {}",
-                e
-            ))
-        })?
-    };
+    let lsystem_params: LSystemParams = deserialize_extensions(extensions)?;
 
     if lsystem_params.axiom.is_empty() {
         return Err(CoreError::InvalidParams(
@@ -142,10 +136,17 @@ pub fn lsystem_factory(extensions: &HashMap<String, Value>) -> CoreResult<Box<dy
         ));
     }
 
+    if lsystem_params.max_string_length == 0 {
+        return Err(CoreError::InvalidParams(
+            "LSystem max_string_length must be greater than 0".into(),
+        ));
+    }
+
     Ok(Box::new(LSystem {
         axiom: lsystem_params.axiom,
         rules: lsystem_params.rules,
         iterations: lsystem_params.iterations,
+        max_string_length: lsystem_params.max_string_length,
     }))
 }
 
@@ -218,11 +219,7 @@ mod tests {
             .collect();
         assert_eq!(frames[1].state.values, expected);
 
-        // 第 2 帧：二次迭代结果长度 = 9 + 4*8 = 41
-        // 每个 F 替换为 9 个字符，+ 和 - 保持不变。原 9 字符中有 5 个 F。
-        // 所以：9 + 5*(9-1) = 9 + 40 = 49. 让我们重新算：
-        // 原 "F+F-F-F+F" 有 5 个 F，4 个运算符。每个 F -> 9 chars.
-        // 9 chars * 5 Fs + 4 operators = 49.
+        // 第 2 帧：9 chars * 5 Fs + 4 operators = 49
         assert_eq!(frames[2].state.values.len(), 49);
     }
 
@@ -261,5 +258,30 @@ mod tests {
             .collect::<Vec<_>>();
         // 应产生 4 帧（axiom + 3 iterations），然后停止
         assert_eq!(frames.len(), 4);
+    }
+
+    #[test]
+    fn test_max_string_length_enforced() {
+        let (axiom, rules) = koch_lsystem();
+        let mut extensions = HashMap::new();
+        extensions.insert("axiom".to_string(), json!(axiom));
+        extensions.insert("rules".to_string(), json!(rules));
+        extensions.insert("iterations".to_string(), json!(100)); // 很高迭代次数
+        extensions.insert("max_string_length".to_string(), json!(50)); // 但限制字符串长度
+
+        let gen = lsystem_factory(&extensions).unwrap();
+        let params = GenParams::simple(0);
+        let frames = gen
+            .generate_stream(0, &params)
+            .unwrap()
+            .collect::<Vec<_>>();
+
+        // 迭代应在字符串长度超限时提前停止
+        assert!(frames.len() < 100, "应在字符串长度超限时停止");
+        // 所有帧的字符串长度不应远超限制
+        for f in &frames {
+            assert!(f.state.values.len() <= 300,
+                "字符串长度应受限制，实际: {}", f.state.values.len());
+        }
     }
 }

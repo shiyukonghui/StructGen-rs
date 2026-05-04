@@ -33,9 +33,10 @@ impl Default for LogisticParams {
 /// 逻辑斯蒂映射生成器
 ///
 /// 离散映射：x_{n+1} = r * x_n * (1 - x_n)
-/// 每步输出当前 x 值（越界时输出 0.0 并停止产生帧）
+/// 每步输出当前 x 值；当 x 越出 [0, 1] 时置为 0.0 并停止产生帧
 pub struct LogisticMap {
     r: f64,
+    x0: Option<f64>,
 }
 
 impl Generator for LogisticMap {
@@ -51,28 +52,31 @@ impl Generator for LogisticMap {
         let r = self.r;
         let seq_limit = params.seq_length;
 
-        // 获取参数中的 x0（可选），否则由种子 PRNG 生成
-        let logistic_params: LogisticParams = params
-            .get_extension("logistic")
-            .unwrap_or_default();
-
+        // 获取初始值 x0（优先使用结构体中的值，否则由种子 PRNG 生成）
         let mut rng = SeedRng::new(seed);
-        let mut x = logistic_params.x0.unwrap_or_else(|| rng.next_f64_range(0.01, 0.99));
+        let mut x = self.x0.unwrap_or_else(|| rng.next_f64_range(0.01, 0.99));
         let mut step_counter: u64 = 0;
+        let mut finished = false;
 
         let iter = std::iter::from_fn(move || {
-            if seq_limit > 0 && step_counter >= seq_limit as u64 {
+            if finished {
                 return None;
             }
 
             let step = step_counter;
             step_counter += 1;
 
-            let values = vec![FrameState::Float(x)];
+            let values = vec![FrameState::float_or_zero(x)];
             let frame = SequenceFrame::new(step, FrameData { values });
 
             // 迭代映射
             x = r * x * (1.0 - x);
+
+            // 越界检测：x 超出 [0, 1] 时置为 0.0 并标记结束
+            if !(0.0..=1.0).contains(&x) {
+                x = 0.0;
+                finished = true;
+            }
 
             Some(frame)
         });
@@ -89,19 +93,7 @@ impl Generator for LogisticMap {
 
 /// 逻辑斯蒂映射工厂函数
 pub fn logistic_factory(extensions: &HashMap<String, Value>) -> CoreResult<Box<dyn Generator>> {
-    let logistic_params: LogisticParams = if extensions.is_empty() {
-        LogisticParams::default()
-    } else {
-        let obj = serde_json::to_value(extensions).map_err(|e| {
-            CoreError::SerializationError(format!("failed to serialize extensions: {}", e))
-        })?;
-        serde_json::from_value(obj).map_err(|e| {
-            CoreError::SerializationError(format!(
-                "failed to deserialize Logistic params: {}",
-                e
-            ))
-        })?
-    };
+    let logistic_params: LogisticParams = deserialize_extensions(extensions)?;
 
     // r 必须在 [0, 4] 范围内
     if logistic_params.r < 0.0 || logistic_params.r > 4.0 {
@@ -111,8 +103,19 @@ pub fn logistic_factory(extensions: &HashMap<String, Value>) -> CoreResult<Box<d
         )));
     }
 
+    // 验证 x0 在合法范围内
+    if let Some(x0) = logistic_params.x0 {
+        if !(0.0..=1.0).contains(&x0) {
+            return Err(CoreError::InvalidParams(format!(
+                "Logistic x0 must be in [0, 1], got {}",
+                x0
+            )));
+        }
+    }
+
     Ok(Box::new(LogisticMap {
         r: logistic_params.r,
+        x0: logistic_params.x0,
     }))
 }
 
@@ -170,7 +173,6 @@ mod tests {
 
     #[test]
     fn test_r_boundary_values_accepted() {
-        // r = 0 和 r = 4 都应该被接受
         let mut ext0 = HashMap::new();
         ext0.insert("r".to_string(), json!(0.0));
         assert!(logistic_factory(&ext0).is_ok());
@@ -206,5 +208,47 @@ mod tests {
             .take(50)
             .collect::<Vec<_>>();
         assert_eq!(frames.len(), 50);
+    }
+
+    #[test]
+    fn test_r4_no_divergence() {
+        // r=4 边界条件下长时间运行不应产生 NaN/Infinity
+        let mut extensions = HashMap::new();
+        extensions.insert("r".to_string(), json!(4.0));
+        let gen = logistic_factory(&extensions).unwrap();
+        let params = GenParams::simple(1000);
+        let frames = gen.generate_stream(42, &params).unwrap().collect::<Vec<_>>();
+        for f in &frames {
+            for v in &f.state.values {
+                match v {
+                    FrameState::Float(val) => assert!(val.is_finite() && *val >= 0.0 && *val <= 1.0),
+                    _ => panic!("Expected Float"),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_x0_param_passed_via_factory() {
+        // 验证 x0 通过工厂函数传递到生成器
+        let mut extensions = HashMap::new();
+        extensions.insert("r".to_string(), json!(3.0));
+        extensions.insert("x0".to_string(), json!(0.5));
+        let gen = logistic_factory(&extensions).unwrap();
+        let params = GenParams::simple(1);
+        let frames = gen.generate_stream(0, &params).unwrap().collect::<Vec<_>>();
+        // 第一帧应该是 x0=0.5
+        match frames[0].state.values[0] {
+            FrameState::Float(v) => assert!((v - 0.5).abs() < 1e-10),
+            _ => panic!("Expected Float"),
+        }
+    }
+
+    #[test]
+    fn test_x0_out_of_range_rejected() {
+        let mut extensions = HashMap::new();
+        extensions.insert("x0".to_string(), json!(1.5));
+        let result = logistic_factory(&extensions);
+        assert!(result.is_err());
     }
 }

@@ -85,10 +85,6 @@ impl Generator for BooleanNetwork {
         let mut step_counter: u64 = 0;
 
         let iter = std::iter::from_fn(move || {
-            if seq_limit > 0 && step_counter >= seq_limit as u64 {
-                return None;
-            }
-
             let step = step_counter;
             step_counter += 1;
 
@@ -124,19 +120,7 @@ impl Generator for BooleanNetwork {
 pub fn boolean_network_factory(
     extensions: &HashMap<String, Value>,
 ) -> CoreResult<Box<dyn Generator>> {
-    let bn_params: BooleanNetworkParams = if extensions.is_empty() {
-        BooleanNetworkParams::default()
-    } else {
-        let obj = serde_json::to_value(extensions).map_err(|e| {
-            CoreError::SerializationError(format!("failed to serialize extensions: {}", e))
-        })?;
-        serde_json::from_value(obj).map_err(|e| {
-            CoreError::SerializationError(format!(
-                "failed to deserialize BooleanNetwork params: {}",
-                e
-            ))
-        })?
-    };
+    let bn_params: BooleanNetworkParams = deserialize_extensions(extensions)?;
 
     if bn_params.num_nodes == 0 {
         return Err(CoreError::InvalidParams(

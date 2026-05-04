@@ -7,7 +7,7 @@ use super::rng::SeedRng;
 use crate::core::*;
 
 /// 积分器类型
-#[derive(Debug, Clone, PartialEq, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 enum Integrator {
     /// 显式欧拉法
@@ -192,7 +192,7 @@ impl Generator for NBodySim {
         let num_bodies = self.num_bodies;
         let dt = self.dt;
         let softening = self.softening;
-        let integrator = self.integrator.clone();
+        let integrator = self.integrator;
         let seq_limit = params.seq_length;
 
         // 用种子 PRNG 生成初始位置和速度
@@ -209,20 +209,16 @@ impl Generator for NBodySim {
         let mut step_counter: u64 = 0;
 
         let iter = std::iter::from_fn(move || {
-            if seq_limit > 0 && step_counter >= seq_limit as u64 {
-                return None;
-            }
-
             let step = step_counter;
             step_counter += 1;
 
             // 输出当前所有天体的位置和速度
             let mut values = Vec::with_capacity(num_bodies * 4);
             for body in &bodies {
-                values.push(FrameState::Float(body.px));
-                values.push(FrameState::Float(body.py));
-                values.push(FrameState::Float(body.vx));
-                values.push(FrameState::Float(body.vy));
+                values.push(FrameState::float_or_zero(body.px));
+                values.push(FrameState::float_or_zero(body.py));
+                values.push(FrameState::float_or_zero(body.vx));
+                values.push(FrameState::float_or_zero(body.vy));
             }
             let frame = SequenceFrame::new(step, FrameData { values });
 
@@ -247,16 +243,7 @@ impl Generator for NBodySim {
 
 /// 多体模拟工厂函数
 pub fn nbody_factory(extensions: &HashMap<String, Value>) -> CoreResult<Box<dyn Generator>> {
-    let nbody_params: NBodyParams = if extensions.is_empty() {
-        NBodyParams::default()
-    } else {
-        let obj = serde_json::to_value(extensions).map_err(|e| {
-            CoreError::SerializationError(format!("failed to serialize extensions: {}", e))
-        })?;
-        serde_json::from_value(obj).map_err(|e| {
-            CoreError::SerializationError(format!("failed to deserialize NBody params: {}", e))
-        })?
-    };
+    let nbody_params: NBodyParams = deserialize_extensions(extensions)?;
 
     if nbody_params.num_bodies == 0 {
         return Err(CoreError::InvalidParams(
