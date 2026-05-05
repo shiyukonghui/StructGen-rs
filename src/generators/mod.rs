@@ -1,11 +1,15 @@
 pub mod boolean_network;
 pub mod ca;
+pub mod ca2d;
+pub mod ca3d;
+pub mod ca_common;
 pub mod formal_grammar;
 pub mod ifs;
 pub mod logistic;
 pub mod lorenz;
 pub mod lsystem;
 pub mod nbody;
+pub mod nca2d;
 pub mod vm;
 
 mod rng;
@@ -20,6 +24,12 @@ use crate::core::CoreError;
 pub fn register_all(registry: &mut GeneratorRegistry) -> Result<(), CoreError> {
     registry.register("ca", ca::ca_factory)?;
     registry.register("cellular_automaton", ca::ca_factory)?;
+    registry.register("ca2d", ca2d::ca2d_factory)?;
+    registry.register("cellular_automaton_2d", ca2d::ca2d_factory)?;
+    registry.register("ca3d", ca3d::ca3d_factory)?;
+    registry.register("cellular_automaton_3d", ca3d::ca3d_factory)?;
+    registry.register("nca2d", nca2d::nca2d_factory)?;
+    registry.register("neural_cellular_automaton_2d", nca2d::nca2d_factory)?;
     registry.register("lorenz", lorenz::lorenz_factory)?;
     registry.register("lorenz_system", lorenz::lorenz_factory)?;
     registry.register("logistic", logistic::logistic_factory)?;

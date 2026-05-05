@@ -97,7 +97,7 @@ impl GlobalConfig {
 }
 
 /// 生成器的通用参数载体，包含所有生成器共享的字段以及动态扩展
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GenParams {
     /// 目标序列长度（要生成的帧数），0 表示无限制（由外部迭代决定）
     #[serde(default)]
@@ -105,6 +105,9 @@ pub struct GenParams {
     /// 网格尺寸（对 CA、布尔网络等有空间维度概念的生成器），None 表示不适用
     #[serde(default)]
     pub grid_size: Option<GridSize>,
+    /// 三维网格尺寸（对 3D CA 等生成器），None 表示不适用
+    #[serde(default)]
+    pub grid_size_3d: Option<GridSize3D>,
     /// 动态扩展字段，承载生成器特有参数（以 JSON Value 形式存储）
     #[serde(default)]
     pub extensions: HashMap<String, Value>,
@@ -137,12 +140,51 @@ impl GridSize {
     }
 }
 
+/// 三维网格尺寸
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GridSize3D {
+    pub depth: usize,
+    pub rows: usize,
+    pub cols: usize,
+}
+
+impl GridSize3D {
+    /// 校验三维网格尺寸的合法性
+    ///
+    /// # Errors
+    /// 当 depth、rows 或 cols 为 0 时返回 [`CoreError::InvalidParams`]
+    pub fn validate(&self) -> Result<(), CoreError> {
+        if self.depth == 0 {
+            return Err(CoreError::InvalidParams(
+                "grid_size_3d.depth cannot be 0".into(),
+            ));
+        }
+        if self.rows == 0 {
+            return Err(CoreError::InvalidParams(
+                "grid_size_3d.rows cannot be 0".into(),
+            ));
+        }
+        if self.cols == 0 {
+            return Err(CoreError::InvalidParams(
+                "grid_size_3d.cols cannot be 0".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// 返回网格总格子数
+    pub fn total_cells(&self) -> usize {
+        self.depth * self.rows * self.cols
+    }
+}
+
 impl GenParams {
     /// 创建最简参数（仅指定序列长度）
     pub fn simple(seq_length: usize) -> Self {
         GenParams {
             seq_length,
             grid_size: None,
+            grid_size_3d: None,
             extensions: HashMap::new(),
         }
     }
@@ -261,6 +303,7 @@ mod tests {
         let params = GenParams::simple(100);
         assert_eq!(params.seq_length, 100);
         assert!(params.grid_size.is_none());
+        assert!(params.grid_size_3d.is_none());
         assert!(params.extensions.is_empty());
     }
 
@@ -402,5 +445,106 @@ mod tests {
             CoreError::ConfigError(msg) => assert!(msg.contains("shard_max_sequences")),
             _ => panic!("expected ConfigError"),
         }
+    }
+
+    #[test]
+    fn test_grid_size_3d_construction() {
+        let gs = GridSize3D {
+            depth: 4,
+            rows: 10,
+            cols: 20,
+        };
+        assert_eq!(gs.depth, 4);
+        assert_eq!(gs.rows, 10);
+        assert_eq!(gs.cols, 20);
+        assert_eq!(gs.total_cells(), 4 * 10 * 20);
+    }
+
+    #[test]
+    fn test_grid_size_3d_serialization() {
+        let gs = GridSize3D {
+            depth: 8,
+            rows: 16,
+            cols: 32,
+        };
+        let json = serde_json::to_string(&gs).unwrap();
+        let restored: GridSize3D = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored, gs);
+    }
+
+    #[test]
+    fn test_grid_size_3d_validate_valid() {
+        let gs = GridSize3D {
+            depth: 1,
+            rows: 1,
+            cols: 1,
+        };
+        assert!(gs.validate().is_ok());
+    }
+
+    #[test]
+    fn test_grid_size_3d_validate_zero_depth() {
+        let gs = GridSize3D {
+            depth: 0,
+            rows: 10,
+            cols: 10,
+        };
+        let result = gs.validate();
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            CoreError::InvalidParams(msg) => assert!(msg.contains("depth")),
+            _ => panic!("expected InvalidParams"),
+        }
+    }
+
+    #[test]
+    fn test_grid_size_3d_validate_zero_rows() {
+        let gs = GridSize3D {
+            depth: 10,
+            rows: 0,
+            cols: 10,
+        };
+        let result = gs.validate();
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            CoreError::InvalidParams(msg) => assert!(msg.contains("rows")),
+            _ => panic!("expected InvalidParams"),
+        }
+    }
+
+    #[test]
+    fn test_grid_size_3d_validate_zero_cols() {
+        let gs = GridSize3D {
+            depth: 10,
+            rows: 10,
+            cols: 0,
+        };
+        let result = gs.validate();
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            CoreError::InvalidParams(msg) => assert!(msg.contains("cols")),
+            _ => panic!("expected InvalidParams"),
+        }
+    }
+
+    #[test]
+    fn test_gen_params_with_grid_size_3d() {
+        let mut params = GenParams::simple(50);
+        params.grid_size_3d = Some(GridSize3D {
+            depth: 8,
+            rows: 16,
+            cols: 16,
+        });
+        let json = serde_json::to_string(&params).unwrap();
+        let restored: GenParams = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.seq_length, 50);
+        assert_eq!(
+            restored.grid_size_3d,
+            Some(GridSize3D {
+                depth: 8,
+                rows: 16,
+                cols: 16,
+            })
+        );
     }
 }

@@ -1,0 +1,36 @@
+global:
+  output_dir: "tests/output/gen_ca2d"
+  default_format: "Text"
+tasks:
+  - name: "conway_life"
+    generator: "ca2d"
+    params:
+      seq_length: 50
+      extensions:
+        rule_type: "lifelike"
+        birth: [3]
+        survival: [2, 3]
+        d_state: 2
+        rows: 32
+        cols: 32
+        boundary: "periodic"
+        neighborhood: "moore"
+    count: 3
+    seed: 42
+    pipeline: []
+
+  - name: "day_night"
+    generator: "cellular_automaton_2d"
+    params:
+      seq_length: 50
+      extensions:
+        rule_type: "lifelike"
+        birth: [3, 6, 7, 8]
+        survival: [3, 4, 6, 7, 8]
+        d_state: 2
+        rows: 32
+        cols: 32
+        boundary: "periodic"
+    count: 2
+    seed: 100
+    pipeline: []

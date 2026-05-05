@@ -34,6 +34,15 @@ impl FrameState {
         Ok(FrameState::Float(value))
     }
 
+    /// 创建有限浮点数值，非有限值（NaN/±Infinity）替换为 0.0
+    pub fn float_or_zero(value: f64) -> Self {
+        if value.is_finite() {
+            FrameState::Float(value)
+        } else {
+            FrameState::Float(0.0)
+        }
+    }
+
     /// 尝试将值解释为 i64
     pub fn as_integer(&self) -> Option<i64> {
         match self {
