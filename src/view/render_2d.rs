@@ -32,7 +32,8 @@ impl Render2D {
         color_map: &CaColorMap,
     ) {
         let frames = buffer.frames.lock().unwrap();
-        let available = ui.available_size();
+        let available_rect = ui.available_rect_before_wrap();
+        let available = available_rect.size();
         if available.x <= 0.0 || available.y <= 0.0 {
             return;
         }
@@ -93,7 +94,7 @@ impl Render2D {
         let offset_y = (available.y - display_h) * 0.5;
 
         let rect = Rect::from_min_size(
-            ui.painter().clip_rect().min + Vec2::new(offset_x, offset_y),
+            available_rect.min + Vec2::new(offset_x, offset_y),
             Vec2::new(display_w, display_h),
         );
 

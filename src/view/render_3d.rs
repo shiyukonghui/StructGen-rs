@@ -38,7 +38,8 @@ impl Render3D {
     ) {
         // 底部控制栏：深度层选择
         let bottom_bar_height = 40.0;
-        let available = ui.available_size();
+        let available_rect = ui.available_rect_before_wrap();
+        let available = available_rect.size();
         if available.x <= 0.0 || available.y <= bottom_bar_height {
             return;
         }
@@ -100,7 +101,8 @@ impl Render3D {
         let tex = upload_texture_3d(ctx, "ca_3d_slice", color_image, &mut self.texture);
 
         // 缩放渲染
-        let paint_available = ui.available_size();
+        let paint_available_rect = ui.available_rect_before_wrap();
+        let paint_available = paint_available_rect.size();
         if paint_available.x <= 0.0 || paint_available.y <= 0.0 {
             drop(frames);
             return;
@@ -116,7 +118,7 @@ impl Render3D {
         let offset_y = (paint_available.y - display_h) * 0.5;
 
         let rect = Rect::from_min_size(
-            ui.painter().clip_rect().min + Vec2::new(offset_x, offset_y),
+            paint_available_rect.min + Vec2::new(offset_x, offset_y),
             Vec2::new(display_w, display_h),
         );
 
