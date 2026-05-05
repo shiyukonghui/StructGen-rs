@@ -58,8 +58,20 @@ impl Render3D {
 
         let frames = buffer.frames.lock().unwrap();
 
-        // 获取当前帧
-        let frame_idx = current_step.saturating_sub(1);
+        // 获取当前帧（current_step 是绝对步数，需映射到缓冲索引）
+        // 当 current_step <= base（旧帧被裁剪），跳到缓冲区最新帧
+        let base = buffer.base_step();
+        let buf_len = frames.len();
+        if buf_len == 0 {
+            ui.label("Waiting for frames...");
+            return;
+        }
+        let frame_idx = if current_step <= base {
+            buf_len - 1
+        } else {
+            (current_step - base).saturating_sub(1).min(buf_len - 1)
+        };
+        let frame = &frames[frame_idx];
         let frame = match frames.get(frame_idx) {
             Some(f) => f,
             None => {

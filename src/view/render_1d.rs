@@ -42,28 +42,38 @@ impl Render1D {
             return;
         }
 
-        // 确定需要渲染的行范围
-        let total_frames = frames.len();
-        let steps_to_show = current_step.min(total_frames);
-        if steps_to_show == 0 {
+        // 将绝对步数映射到缓冲索引
+        let base = buffer.base_step();
+        let buf_len = frames.len();
+        if buf_len == 0 {
             ui.label("Waiting for frames...");
             return;
         }
 
-        // 计算实际显示行数（受窗口高度限制）
-        let display_rows = steps_to_show.min(self.max_rows);
-        let start_step = steps_to_show.saturating_sub(display_rows);
+        // 计算可显示的缓冲区范围
+        // - current_step <= base：旧帧已被裁剪，直接显示缓冲区中最新的帧
+        // - current_step > base：正常动画模式，显示到 current_step 对应位置
+        let show_end = if current_step <= base {
+            buf_len
+        } else {
+            (current_step - base).min(buf_len)
+        };
+        if show_end == 0 {
+            ui.label("Waiting for frames...");
+            return;
+        }
+
+        // 显示最近 max_rows 帧（滚动窗口）
+        let display_rows = show_end.min(self.max_rows);
+        let show_start = show_end.saturating_sub(display_rows);
 
         // 构建 ColorImage
         let img_w = self.width;
         let img_h = display_rows;
         let mut pixels = vec![Color32::from_rgb(20, 20, 30); img_w * img_h];
 
-        for (row_idx, step) in (start_step..steps_to_show).enumerate() {
-            if step >= total_frames {
-                break;
-            }
-            let frame = &frames[step];
+        for (row_idx, buf_idx) in (show_start..show_end).enumerate() {
+            let frame = &frames[buf_idx];
             for (col, state) in frame.state.values.iter().enumerate() {
                 if col >= img_w {
                     break;
@@ -92,18 +102,13 @@ impl Render1D {
         // 上传/更新纹理
         let tex = upload_texture(ctx, "ca_1d_spacetime", color_image, &mut self.texture);
 
-        // 计算显示区域，保持宽高比
-        let scale_x = available.x / img_w as f32;
-        let scale_y = available.y / img_h as f32;
-        let scale = scale_x.min(scale_y);
-        let display_w = img_w as f32 * scale;
-        let display_h = img_h as f32 * scale;
-
-        let offset_x = (available.x - display_w) * 0.5;
-        let offset_y = (available.y - display_h) * 0.5;
+        // 时空图水平拉伸填满可用宽度，仅垂直方向保持像素比例
+        // （128px 宽 × 2000 行的宽高比极窄，保持比例会导致有效显示区域过小）
+        let display_w = available.x;
+        let display_h = available.y;
 
         let rect = Rect::from_min_size(
-            available_rect.min + Vec2::new(offset_x, offset_y),
+            available_rect.min,
             Vec2::new(display_w, display_h),
         );
 

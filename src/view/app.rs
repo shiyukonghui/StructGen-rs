@@ -80,6 +80,12 @@ impl eframe::App for CaViewApp {
             self.last_step_time = now;
         }
 
+        // 确保 current_step 不低于缓冲区首帧（旧帧已被滑动窗口裁剪）
+        let base = self.frame_buffer.base_step();
+        if self.current_step < base {
+            self.current_step = base;
+        }
+
         // 主面板（使用 show_inside，egui 0.34 API）
         egui::CentralPanel::default().show_inside(ui, |ui| {
             // 信息栏
