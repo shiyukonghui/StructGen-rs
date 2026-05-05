@@ -13,6 +13,7 @@ use crate::sink::{OutputConfig, OutputStats};
 use crate::pipeline::ProcessorRegistry;
 
 use super::manifest::TaskSpec;
+use super::seed::derive_sample_seed;
 use super::shard::{Shard, ShardResult};
 
 /// 执行单个分片：生成→后处理→写出
@@ -86,25 +87,32 @@ fn execute_shard_inner(
     // 1. 实例化生成器
     let generator = gen_registry.instantiate(&task.generator, &task.params.extensions)?;
 
-    // 2. 生成原始帧流
-    let raw_stream = generator.generate_stream(shard.seed, &task.params)?;
-
-    // 3. 构建后处理管道链
-    let processed_stream = build_pipeline_chain(raw_stream, task, proc_registry)?;
-
-    // 4. 确定输出格式
+    // 2. 确定输出格式
     let format = task.output_format.unwrap_or(OutputFormat::Parquet);
 
-    // 5. 创建并初始化输出适配器
+    // 3. 创建并初始化输出适配器
     let mut adapter = adapter_factory(format)?;
     adapter.open(output_dir, &task.name, shard.shard_idx, shard.seed, output_config)?;
 
-    // 6. 逐帧写入
-    for frame in processed_stream {
-        adapter.write_frame(&frame)?;
+    // 4. 多样本循环：每个样本独立生成一条轨迹
+    for sample_idx in 0..shard.sample_count {
+        // 为每个样本派生唯一种子
+        let sample_seed = derive_sample_seed(shard.seed, sample_idx);
+
+        // 生成原始帧流
+        let raw_stream = generator.generate_stream(sample_seed, &task.params)?;
+
+        // 构建后处理管道链
+        let processed_stream = build_pipeline_chain(raw_stream, task, proc_registry)?;
+
+        // 逐帧写入，设置 sample_id
+        for mut frame in processed_stream {
+            frame.sample_id = Some(sample_idx as u64);
+            adapter.write_frame(&frame)?;
+        }
     }
 
-    // 7. 关闭适配器，获取输出统计
+    // 5. 关闭适配器，获取输出统计
     let stats = adapter.close()?;
 
     Ok(ShardResult {
@@ -239,7 +247,8 @@ mod tests {
         );
 
         assert!(result.error.is_none(), "不应有错误: {:?}", result.error);
-        assert_eq!(result.stats.frames_written, 10);
+        // 10 个样本 × 每个 10 帧 = 100 帧
+        assert_eq!(result.stats.frames_written, 100);
         assert_eq!(result.task_name, "e2e_test");
     }
 
@@ -276,7 +285,8 @@ mod tests {
         );
 
         assert!(result.error.is_none());
-        assert_eq!(result.stats.frames_written, 10);
+        // 10 个样本 × 每个 10 帧 = 100 帧
+        assert_eq!(result.stats.frames_written, 100);
     }
 
     #[test]

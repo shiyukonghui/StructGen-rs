@@ -3,8 +3,8 @@
 //! 将帧序列以紧凑的二进制格式转储，支持后续通过 mmap 进行高效随机访问。
 //!
 //! 文件格式（小端序）：
-//! - Header (16 bytes): magic "SGEN"(4) + version u32(4) + frame_count u64(8) + state_dim u32(4)
-//! - 每帧: step_index u64(8) + values (state_dim * 9 bytes) + label_len u32(4) + label_bytes
+//! - Header (24 bytes): magic "SGEN"(4) + version u32(4) + frame_count u64(8) + state_dim u32(4)
+//! - 每帧: sample_id u8(1, 0=None/1=Some) + [sample_id u64(8, if present)] + step_index u64(8) + values (state_dim * 9 bytes) + label_len u32(4) + label_bytes
 
 use std::fs::{self, File};
 use std::io::{BufWriter, Seek, SeekFrom, Write};
@@ -17,7 +17,7 @@ use super::adapter::{format_output_filename, OutputConfig, OutputStats, SinkAdap
 /// 文件格式魔数
 const MAGIC: &[u8; 4] = b"SGEN";
 /// 文件格式版本号
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 /// 帧状态值的二进制表示大小（1 字节类型标签 + 8 字节数据）
 const STATE_VALUE_BYTES: usize = 9;
 
@@ -77,9 +77,19 @@ impl BinaryAdapter {
         let label_bytes = frame.label.as_ref().map(|l| l.as_bytes()).unwrap_or(&[]);
         let label_len = label_bytes.len() as u32;
 
-        // 计算帧大小：step_index(8) + state_dim * 9 + label_len(4) + label_bytes
-        let frame_size = 8 + (state_dim as usize) * STATE_VALUE_BYTES + 4 + label_bytes.len();
+        // 计算帧大小：
+        // sample_id_flag(1) + [sample_id(8)] + step_index(8) + state_dim * 9 + label_len(4) + label_bytes
+        let sample_id_size = if frame.sample_id.is_some() { 8 } else { 0 };
+        let frame_size = 1 + sample_id_size + 8 + (state_dim as usize) * STATE_VALUE_BYTES + 4 + label_bytes.len();
         let mut buf = Vec::with_capacity(frame_size);
+
+        // sample_id 标志位 + 值
+        if let Some(sid) = frame.sample_id {
+            buf.push(1u8); // 标志位：有 sample_id
+            buf.extend_from_slice(&sid.to_le_bytes());
+        } else {
+            buf.push(0u8); // 标志位：无 sample_id
+        }
 
         // step_index (u64 LE)
         buf.extend_from_slice(&frame.step_index.to_le_bytes());
@@ -299,6 +309,7 @@ mod tests {
                     step_index: i as u64,
                     state: data,
                     label,
+                    sample_id: None,
                 }
             })
             .collect()
@@ -416,7 +427,8 @@ mod tests {
             FrameState::Bool(true),
         ];
         let data: FrameData = values.into_iter().collect();
-        let frame = SequenceFrame::with_label(7, data, "test_label");
+        let mut frame = SequenceFrame::with_label(7, data, "test_label");
+        frame.sample_id = Some(3u64);
 
         let mut adapter = BinaryAdapter::new();
         adapter
@@ -427,33 +439,38 @@ mod tests {
 
         let raw = fs::read(&stats.output_path.unwrap()).unwrap();
 
-        // 跳过 header (20 bytes = magic 4 + version 4 + frame_count 8 + state_dim 4)
+        // 跳过 header (20 bytes)
         let body = &raw[20..];
 
-        // step_index (u64 LE) = 7
-        let step = u64::from_le_bytes(body[0..8].try_into().unwrap());
+        // sample_id_flag(1) + sample_id(8)
+        assert_eq!(body[0], 1); // flag: has sample_id
+        let sample_id = u64::from_le_bytes(body[1..9].try_into().unwrap());
+        assert_eq!(sample_id, 3);
+
+        // step_index (u64 LE) = 7, at offset 9
+        let step = u64::from_le_bytes(body[9..17].try_into().unwrap());
         assert_eq!(step, 7);
 
-        // 第一个值：Integer(42), tag=0x01
-        assert_eq!(body[8], 0x01);
-        let int_val = i64::from_le_bytes(body[9..17].try_into().unwrap());
+        // 第一个值：Integer(42), tag=0x01, at offset 17
+        assert_eq!(body[17], 0x01);
+        let int_val = i64::from_le_bytes(body[18..26].try_into().unwrap());
         assert_eq!(int_val, 42);
 
         // 第二个值：Float(3.14), tag=0x02
-        assert_eq!(body[17], 0x02);
-        let float_val = f64::from_le_bytes(body[18..26].try_into().unwrap());
+        assert_eq!(body[26], 0x02);
+        let float_val = f64::from_le_bytes(body[27..35].try_into().unwrap());
         assert!((float_val - 3.14).abs() < 1e-10);
 
         // 第三个值：Bool(true), tag=0x03
-        assert_eq!(body[26], 0x03);
-        assert_eq!(body[27], 1);
+        assert_eq!(body[35], 0x03);
+        assert_eq!(body[36], 1);
 
-        // label_len 在 offset 8 + 3*9 = 35 处
-        let label_len = u32::from_le_bytes(body[35..39].try_into().unwrap());
+        // label_len: offset = 9 + 8 + 3*9 = 44
+        let label_len = u32::from_le_bytes(body[44..48].try_into().unwrap());
         assert_eq!(label_len, 10); // "test_label".len() = 10
 
         // label 字节
-        let label = std::str::from_utf8(&body[39..39 + 10]).unwrap();
+        let label = std::str::from_utf8(&body[48..48 + 10]).unwrap();
         assert_eq!(label, "test_label");
     }
 
@@ -536,7 +553,7 @@ mod tests {
 
         let values: Vec<FrameState> = vec![FrameState::Bool(false)];
         let data: FrameData = values.into_iter().collect();
-        let frame = SequenceFrame::new(0, data); // 无标签
+        let frame = SequenceFrame::new(0, data); // 无标签, 无 sample_id
 
         let mut adapter = BinaryAdapter::new();
         adapter
@@ -548,24 +565,22 @@ mod tests {
         let raw = fs::read(&stats.output_path.unwrap()).unwrap();
         let body = &raw[20..];
 
-        // offset: step_index(8) + 1 value(9) = 17, label_len at 17
-        let label_len = u32::from_le_bytes(body[17..21].try_into().unwrap());
+        // offset: sample_id_flag(1) + step_index(8) + 1 value(9) = 18, label_len at 18
+        let label_len = u32::from_le_bytes(body[18..22].try_into().unwrap());
         assert_eq!(label_len, 0);
     }
 
     #[test]
     fn test_binary_serialize_frame_size() {
-        let values: Vec<FrameState> = vec![
-            FrameState::Integer(0),
-            FrameState::Float(0.0),
-            FrameState::Bool(false),
-        ];
-        let data: FrameData = values.into_iter().collect();
-        let frame = SequenceFrame::with_label(0, data, "ABC"); // label 3 bytes
+        let mut frame = SequenceFrame::with_label(0, FrameData::new(), "ABC"); // label 3 bytes
+        frame.state.values.push(FrameState::Integer(0));
+        frame.state.values.push(FrameState::Float(0.0));
+        frame.state.values.push(FrameState::Bool(false));
+        frame.sample_id = Some(42u64);
 
         let bytes = BinaryAdapter::serialize_frame(&frame, 3);
 
-        // 期望大小: step_index(8) + 3*9 + label_len(4) + label_bytes(3) = 8 + 27 + 4 + 3 = 42
-        assert_eq!(bytes.len(), 42);
+        // 期望大小: sample_id_flag(1) + sample_id(8) + step_index(8) + 3*9 + label_len(4) + label_bytes(3) = 1+8+8+27+4+3 = 51
+        assert_eq!(bytes.len(), 51);
     }
 }

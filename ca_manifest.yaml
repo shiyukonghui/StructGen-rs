@@ -1,0 +1,59 @@
+global:
+  output_dir: "F:/RustProjects/StructGen-rs/output_ca"
+  default_format: "Parquet"
+  num_threads: 8
+  stream_write: true
+  shard_max_sequences: 10000
+
+tasks:
+  - name: "ca_1d_rule30"
+    generator: "ca"
+    params:
+      seq_length: 128
+      extensions:
+        rule: 30
+        width: 128
+        boundary: "periodic"
+    count: 400000
+    seed: 42
+    pipeline: []
+    output_format: "Parquet"
+
+  - name: "ca_2d_life"
+    generator: "ca2d"
+    params:
+      seq_length: 64
+      extensions:
+        rule_type: "lifelike"
+        birth: [3]
+        survival: [2, 3]
+        d_state: 2
+        rows: 32
+        cols: 32
+        boundary: "periodic"
+        neighborhood: "moore"
+        init_mode: "random"
+    count: 400000
+    seed: 2024
+    pipeline: []
+    output_format: "Parquet"
+
+  - name: "ca_3d_life"
+    generator: "ca3d"
+    params:
+      seq_length: 32
+      extensions:
+        rule_type: "lifelike"
+        birth: [5, 6, 7]
+        survival: [5, 6]
+        d_state: 2
+        depth: 8
+        rows: 8
+        cols: 8
+        boundary: "periodic"
+        neighborhood: "moore"
+        init_mode: "random"
+    count: 400000
+    seed: 2025
+    pipeline: []
+    output_format: "Parquet"

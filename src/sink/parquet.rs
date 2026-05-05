@@ -62,6 +62,7 @@ impl ParquetAdapter {
     /// 定义 Parquet 文件的 Arrow Schema
     fn build_schema() -> Arc<Schema> {
         Arc::new(Schema::new(vec![
+            Field::new("sample_id", DataType::Int64, true),
             Field::new("step_index", DataType::Int64, false),
             Field::new("state_dim", DataType::Int32, false),
             Field::new("state_values", DataType::Binary, false),
@@ -96,6 +97,13 @@ impl ParquetAdapter {
         frame: &SequenceFrame,
         schema: &Arc<Schema>,
     ) -> CoreResult<RecordBatch> {
+        // sample_id 列（nullable）
+        let sample_id_array = if let Some(sid) = frame.sample_id {
+            Int64Array::from(vec![Some(sid as i64)])
+        } else {
+            Int64Array::from(vec![None::<i64>])
+        };
+
         let step_index = Int64Array::from(vec![frame.step_index as i64]);
         let state_dim = frame.state.dim() as i32;
         let state_dim_array = Int32Array::from(vec![state_dim]);
@@ -120,6 +128,7 @@ impl ParquetAdapter {
         let batch = RecordBatch::try_new(
             Arc::clone(schema),
             vec![
+                Arc::new(sample_id_array) as ArrayRef,
                 Arc::new(step_index) as ArrayRef,
                 Arc::new(state_dim_array) as ArrayRef,
                 Arc::new(state_values) as ArrayRef,
@@ -294,10 +303,12 @@ mod tests {
                 } else {
                     None
                 };
+                let sample_id = if i % 5 < 3 { Some(0u64) } else { Some(1u64) };
                 SequenceFrame {
                     step_index: i as u64,
                     state: data,
                     label,
+                    sample_id,
                 }
             })
             .collect()
@@ -338,28 +349,38 @@ mod tests {
         for batch_result in reader {
             let batch = batch_result.unwrap();
 
-            let step_index_col = batch
+            let sample_id_col = batch
                 .column(0)
                 .as_any()
                 .downcast_ref::<Int64Array>()
                 .unwrap();
-            let state_dim_col = batch
+            let step_index_col = batch
                 .column(1)
+                .as_any()
+                .downcast_ref::<Int64Array>()
+                .unwrap();
+            let state_dim_col = batch
+                .column(2)
                 .as_any()
                 .downcast_ref::<Int32Array>()
                 .unwrap();
             let state_values_col = batch
-                .column(2)
+                .column(3)
                 .as_any()
                 .downcast_ref::<BinaryArray>()
                 .unwrap();
             let label_col = batch
-                .column(3)
+                .column(4)
                 .as_any()
                 .downcast_ref::<arrow::array::StringArray>()
                 .unwrap();
 
             for row in 0..batch.num_rows() {
+                let sample_id = if sample_id_col.is_null(row) {
+                    None
+                } else {
+                    Some(sample_id_col.value(row) as u64)
+                };
                 let step_index = step_index_col.value(row) as u64;
                 let _dim = state_dim_col.value(row);
                 let raw = state_values_col.value(row);
@@ -393,6 +414,7 @@ mod tests {
                     step_index,
                     state: FrameData { values },
                     label,
+                    sample_id,
                 });
             }
         }
@@ -402,9 +424,11 @@ mod tests {
         assert_eq!(read_frames[0].step_index, frames[0].step_index);
         assert_eq!(read_frames[0].state.values.len(), frames[0].state.values.len());
         assert_eq!(read_frames[0].label, frames[0].label);
+        assert_eq!(read_frames[0].sample_id, frames[0].sample_id);
         // 验证最后一帧
         assert_eq!(read_frames[99].step_index, frames[99].step_index);
         assert_eq!(read_frames[99].state.values.len(), frames[99].state.values.len());
+        assert_eq!(read_frames[99].sample_id, frames[99].sample_id);
     }
 
     #[test]

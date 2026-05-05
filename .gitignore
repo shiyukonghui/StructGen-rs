@@ -1,2 +1,4 @@
 /target
 tests/output
+output_ca
+comparison_output

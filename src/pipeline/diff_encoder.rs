@@ -65,6 +65,7 @@ impl<I: Iterator<Item = SequenceFrame>> Iterator for DiffIter<I> {
                         step_index: frame.step_index,
                         state: FrameData { values: diff_values },
                         label: frame.label,
+                        sample_id: None,
                     }
                 } else {
                     // 首帧直接产出
@@ -83,6 +84,7 @@ impl<I: Iterator<Item = SequenceFrame>> Iterator for DiffIter<I> {
                     step_index: frame.step_index,
                     state: FrameData { values: diff_values },
                     label: frame.label,
+                    sample_id: None,
                 }
             }
         };

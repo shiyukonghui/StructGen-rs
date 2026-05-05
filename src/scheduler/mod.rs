@@ -162,7 +162,8 @@ mod tests {
         let results = run_manifest(&manifest, &gen_reg, &proc_reg, mock_adapter_factory).unwrap();
         assert_eq!(results.len(), 1);
         assert!(results[0].error.is_none());
-        assert_eq!(results[0].stats.frames_written, 5);
+        // 5 个样本 × 每个 5 帧 = 25 帧
+        assert_eq!(results[0].stats.frames_written, 25);
         assert_eq!(results[0].task_name, "single_task");
     }
 
@@ -192,7 +193,8 @@ mod tests {
         assert_eq!(results.len(), 3);
 
         let total_frames: u64 = results.iter().map(|r| r.stats.frames_written).sum();
-        assert_eq!(total_frames, 3 * 5);
+        // 3 个分片 × 5 个样本 × 5 帧 = 75 帧
+        assert_eq!(total_frames, 75);
 
         for result in &results {
             assert!(result.error.is_none(), "分片不应有错误");
@@ -298,7 +300,8 @@ mod tests {
         // 好任务的分片应成功
         let good_result = results.iter().find(|r| r.task_name == "good_task").unwrap();
         assert!(good_result.error.is_none());
-        assert_eq!(good_result.stats.frames_written, 5);
+        // 5 个样本 × 每个 5 帧 = 25 帧
+        assert_eq!(good_result.stats.frames_written, 25);
 
         // 坏任务的分片应记录错误
         let bad_result = results.iter().find(|r| r.task_name == "bad_task").unwrap();

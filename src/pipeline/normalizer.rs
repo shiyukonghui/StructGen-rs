@@ -118,6 +118,7 @@ impl Processor for Normalizer {
                             step_index: frame.step_index,
                             state: FrameData { values },
                             label: frame.label,
+                            sample_id: None,
                         }
                     });
                     return Ok(Box::new(iter));
@@ -176,6 +177,7 @@ impl Processor for Normalizer {
                 step_index: frame.step_index,
                 state: FrameData { values },
                 label: frame.label,
+                sample_id: None,
             }
         });
 

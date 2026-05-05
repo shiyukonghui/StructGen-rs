@@ -70,13 +70,22 @@ impl TextAdapter {
 
     /// 将整帧转换为文本行（不含换行符）
     fn frame_to_line(frame: &SequenceFrame) -> String {
+        let mut line = String::new();
+
+        // 前缀 sample_id（如果存在）
+        if let Some(sid) = frame.sample_id {
+            line.push_str(&format!("{}:", sid));
+        }
+
+        // 状态值映射为字符
         let chars: String = frame
             .state
             .values
             .iter()
             .map(Self::frame_state_to_char)
             .collect();
-        chars
+        line.push_str(&chars);
+        line
     }
 }
 
@@ -214,6 +223,7 @@ mod tests {
                     step_index: i as u64,
                     state: data,
                     label,
+                    sample_id: None,
                 }
             })
             .collect()

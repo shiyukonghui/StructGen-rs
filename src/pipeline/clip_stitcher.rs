@@ -57,6 +57,7 @@ impl<I: Iterator<Item = SequenceFrame>> Iterator for ClipStitchIter<I> {
                 step_index: step,
                 state: FrameData { values: vec![] },
                 label: Some(SEPARATOR_LABEL.to_string()),
+                sample_id: None,
             });
         }
 

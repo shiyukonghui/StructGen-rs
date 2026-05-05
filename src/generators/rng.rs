@@ -43,7 +43,10 @@ impl SeedRng {
     }
 
     /// 生成随机布尔值
+    ///
+    /// 使用最高有效位（MSB），因为 Xorshift64 的 MSB 比 LSB
+    /// 具有更好的统计特性。
     pub fn next_bool(&mut self) -> bool {
-        self.next_u64() & 1 == 1
+        (self.next_u64() >> 63) & 1 == 1
     }
 }

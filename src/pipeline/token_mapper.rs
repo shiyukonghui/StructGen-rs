@@ -95,6 +95,7 @@ impl<I: Iterator<Item = SequenceFrame>> Iterator for TokenMapIter<I> {
             step_index: frame.step_index,
             state: FrameData { values },
             label: frame.label,
+            sample_id: None,
         })
     }
 }

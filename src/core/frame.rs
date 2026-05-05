@@ -136,6 +136,11 @@ pub struct SequenceFrame {
     pub state: FrameData,
     /// 可选的语义标签
     pub label: Option<String>,
+    /// 样本标识符，用于区分同一分片内不同的独立序列
+    ///
+    /// 由 executor 在多样本循环中设置，生成器内部始终为 None。
+    /// 在 Parquet 输出中对应 `sample_id` 列。
+    pub sample_id: Option<u64>,
 }
 
 impl SequenceFrame {
@@ -145,6 +150,7 @@ impl SequenceFrame {
             step_index,
             state,
             label: None,
+            sample_id: None,
         }
     }
 
@@ -154,6 +160,7 @@ impl SequenceFrame {
             step_index,
             state,
             label: Some(label.into()),
+            sample_id: None,
         }
     }
 }
