@@ -4,6 +4,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use super::ca_common::*;
+use super::ca_rules;
 use super::rng::SeedRng;
 use crate::core::*;
 
@@ -32,6 +33,12 @@ struct Ca3dParams {
     neighborhood: Neighborhood,
     #[serde(default)]
     init_mode: InitMode,
+    /// 循环 CA 状态数（仅 rule_type="cyclic" 时使用）
+    #[serde(default = "default_n_states")]
+    n_states: u8,
+    /// 循环 CA 阈值（仅 rule_type="cyclic" 时使用）
+    #[serde(default = "default_threshold")]
+    threshold: u8,
 }
 
 fn default_rule_type() -> String {
@@ -55,6 +62,12 @@ fn default_rows_3d() -> usize {
 fn default_cols_3d() -> usize {
     16
 }
+fn default_n_states() -> u8 {
+    14
+}
+fn default_threshold() -> u8 {
+    1
+}
 
 impl Default for Ca3dParams {
     fn default() -> Self {
@@ -70,13 +83,15 @@ impl Default for Ca3dParams {
             boundary: Boundary::default(),
             neighborhood: Neighborhood::default(),
             init_mode: InitMode::default(),
+            n_states: default_n_states(),
+            threshold: default_threshold(),
         }
     }
 }
 
 /// 3D 元胞自动机生成器
 ///
-/// 支持 Life-like (B/S 记法) 和 Totalistic 两种规则系统，
+/// 支持 Life-like (B/S 记法)、Totalistic、循环 CA 和 Fredkin 奇偶规则，
 /// 可配置多值离散状态、边界条件和邻域类型。
 pub struct CellularAutomaton3D {
     rule: Rule3D,
@@ -161,6 +176,38 @@ impl CellularAutomaton3D {
                             if dst[idx] >= d_state {
                                 dst[idx] = 0;
                             }
+                        }
+                        Rule3D::Cyclic3D {
+                            n_states,
+                            threshold,
+                        } => {
+                            // 3D 循环 CA: 若邻居中有 ≥ threshold 个处于下一状态，则前进
+                            let next_state = ((current as u16 + 1) % *n_states as u16) as u8;
+                            let mut next_count: usize = 0;
+                            for &(dd, dr, dc) in offsets {
+                                let n = get_neighbor_3d(
+                                    src, d, r, c, depth, rows, cols, dd, dr, dc, boundary,
+                                );
+                                if n == next_state {
+                                    next_count += 1;
+                                }
+                            }
+                            dst[idx] = if next_count >= *threshold as usize {
+                                next_state
+                            } else {
+                                current
+                            };
+                        }
+                        Rule3D::Fredkin3D => {
+                            // Fredkin 奇偶规则: 下一状态 = (所有邻居状态之和) % 2
+                            let mut sum: usize = 0;
+                            for &(dd, dr, dc) in offsets {
+                                let n = get_neighbor_3d(
+                                    src, d, r, c, depth, rows, cols, dd, dr, dc, boundary,
+                                );
+                                sum += n as usize;
+                            }
+                            dst[idx] = (sum % 2) as u8;
                         }
                     }
                 }
@@ -247,7 +294,9 @@ impl Generator for CellularAutomaton3D {
 
 /// 3D 元胞自动机工厂函数
 pub fn ca3d_factory(extensions: &HashMap<String, Value>) -> CoreResult<Box<dyn Generator>> {
-    let params: Ca3dParams = deserialize_extensions(extensions)?;
+    // 应用预设解析（若指定）
+    let ext = ca_rules::apply_preset_to_extensions(extensions, 3)?;
+    let params: Ca3dParams = deserialize_extensions(&ext)?;
 
     if params.depth == 0 {
         return Err(CoreError::InvalidParams(
@@ -332,18 +381,49 @@ pub fn ca3d_factory(extensions: &HashMap<String, Value>) -> CoreResult<Box<dyn G
             };
             (rule, None)
         }
+        "cyclic" => {
+            if params.n_states < 2 {
+                return Err(CoreError::InvalidParams(
+                    "Cyclic3D CA requires n_states >= 2".into(),
+                ));
+            }
+            if params.threshold < 1 {
+                return Err(CoreError::InvalidParams(
+                    "Cyclic3D CA requires threshold >= 1".into(),
+                ));
+            }
+            let rule = Rule3D::Cyclic3D {
+                n_states: params.n_states,
+                threshold: params.threshold,
+            };
+            (rule, None)
+        }
+        "fredkin" => {
+            if params.d_state != 2 {
+                return Err(CoreError::InvalidParams(
+                    "Fredkin3D rule requires d_state == 2".into(),
+                ));
+            }
+            (Rule3D::Fredkin3D, None)
+        }
         other => {
             return Err(CoreError::InvalidParams(format!(
-                "unknown rule_type '{}', expected 'lifelike' or 'totalistic'",
+                "unknown rule_type '{}', expected 'lifelike', 'totalistic', 'cyclic', or 'fredkin'",
                 other
             )));
         }
     };
 
+    // 循环 CA 需要覆盖 d_state
+    let effective_d_state = match &rule {
+        Rule3D::Cyclic3D { n_states, .. } => *n_states,
+        _ => params.d_state,
+    };
+
     Ok(Box::new(CellularAutomaton3D {
         rule,
         lut,
-        d_state: params.d_state,
+        d_state: effective_d_state,
         depth: params.depth,
         rows: params.rows,
         cols: params.cols,
@@ -411,9 +491,6 @@ mod tests {
 
     #[test]
     fn test_3d_single_center_neighbor_count() {
-        // 3×3×3 网格，中心 (1,1,1) = 1，其余为 0
-        // 使用 Moore 邻域，中心格有 0 个活邻居（它自己是活的但不计入邻居）
-        // 它的 26 个邻居应该都是 0
         let mut extensions = HashMap::new();
         extensions.insert("rule_type".to_string(), json!("lifelike"));
         extensions.insert("birth".to_string(), json!([3]));
@@ -429,18 +506,12 @@ mod tests {
         let frames = gen.generate_stream(0, &params).unwrap().collect::<Vec<_>>();
         assert_eq!(frames.len(), 2);
 
-        // 帧 0: 仅中心 (1,1,1) 为 1
         let f0 = &frames[0];
         let center_idx = 1 * (3 * 3) + 1 * 3 + 1;
         assert_eq!(f0.state.values[center_idx].as_integer().unwrap(), 1);
 
-        // 帧 1: 中心格的 26 邻居中都是 0（fixed 边界），
-        // 所以中心格有 0 个活邻居，B3/S23 下不存活
         let f1 = &frames[1];
         assert_eq!(f1.state.values[center_idx].as_integer().unwrap(), 0);
-
-        // 与中心格相邻的 6 个轴邻居各有 1 个活邻居（中心格），
-        // 但 B3 要求 3 个活邻居，所以它们也不出生
     }
 
     #[test]
@@ -541,7 +612,6 @@ mod tests {
         let params = GenParams::simple(3);
         let frames = gen.generate_stream(0, &params).unwrap().collect::<Vec<_>>();
         assert_eq!(frames.len(), 3);
-        // 默认 16³
         for f in &frames {
             assert_eq!(f.state.values.len(), 16 * 16 * 16);
         }
@@ -552,7 +622,6 @@ mod tests {
         let mut extensions = HashMap::new();
         extensions.insert("rule_type".to_string(), json!("totalistic"));
         extensions.insert("d_state".to_string(), json!(2));
-        // max_sum = 26 * 1 = 26, 需要 len > 26
         let table: Vec<u8> = (0..27).map(|i| if i > 0 && i <= 4 { 1 } else { 0 }).collect();
         extensions.insert("totalistic_table".to_string(), json!(table));
         extensions.insert("depth".to_string(), json!(3));
@@ -569,5 +638,102 @@ mod tests {
                 assert!(val == 0 || val == 1, "Value should be 0 or 1, got {}", val);
             }
         }
+    }
+
+    // ---- Cyclic3D 测试 ----
+
+    #[test]
+    fn test_cyclic_3d_evolution() {
+        let mut ext = HashMap::new();
+        ext.insert("rule_type".to_string(), json!("cyclic"));
+        ext.insert("n_states".to_string(), json!(4));
+        ext.insert("threshold".to_string(), json!(1));
+        ext.insert("depth".to_string(), json!(4));
+        ext.insert("rows".to_string(), json!(4));
+        ext.insert("cols".to_string(), json!(4));
+
+        let gen = ca3d_factory(&ext).unwrap();
+        let frames = collect_frames(gen.as_ref(), 42, 10);
+        assert_eq!(frames.len(), 10);
+        for f in &frames {
+            for v in &f.state.values {
+                let val = v.as_integer().unwrap();
+                assert!(val >= 0 && val < 4, "Cyclic3D state should be 0-3, got {}", val);
+            }
+        }
+    }
+
+    // ---- Fredkin3D 测试 ----
+
+    #[test]
+    fn test_fredkin_3d_evolution() {
+        let mut ext = HashMap::new();
+        ext.insert("rule_type".to_string(), json!("fredkin"));
+        ext.insert("depth".to_string(), json!(4));
+        ext.insert("rows".to_string(), json!(4));
+        ext.insert("cols".to_string(), json!(4));
+
+        let gen = ca3d_factory(&ext).unwrap();
+        let frames = collect_frames(gen.as_ref(), 42, 10);
+        assert_eq!(frames.len(), 10);
+        for f in &frames {
+            for v in &f.state.values {
+                let val = v.as_integer().unwrap();
+                assert!(val == 0 || val == 1, "Fredkin3D state should be 0 or 1, got {}", val);
+            }
+        }
+    }
+
+    #[test]
+    fn test_fredkin_3d_requires_dstate2() {
+        let mut ext = HashMap::new();
+        ext.insert("rule_type".to_string(), json!("fredkin"));
+        ext.insert("d_state".to_string(), json!(3));
+        assert!(ca3d_factory(&ext).is_err());
+    }
+
+    // ---- 预设测试 ----
+
+    #[test]
+    fn test_preset_life_3d() {
+        let mut ext = HashMap::new();
+        ext.insert("preset".to_string(), json!("life_3d"));
+        ext.insert("depth".to_string(), json!(4));
+        ext.insert("rows".to_string(), json!(4));
+        ext.insert("cols".to_string(), json!(4));
+        let gen = ca3d_factory(&ext).unwrap();
+        let frames = collect_frames(gen.as_ref(), 42, 5);
+        assert_eq!(frames.len(), 5);
+    }
+
+    #[test]
+    fn test_preset_cyclic_3d() {
+        let mut ext = HashMap::new();
+        ext.insert("preset".to_string(), json!("cyclic_3d"));
+        ext.insert("depth".to_string(), json!(4));
+        ext.insert("rows".to_string(), json!(4));
+        ext.insert("cols".to_string(), json!(4));
+        let gen = ca3d_factory(&ext).unwrap();
+        let frames = collect_frames(gen.as_ref(), 42, 5);
+        assert_eq!(frames.len(), 5);
+    }
+
+    #[test]
+    fn test_preset_fredkin_3d() {
+        let mut ext = HashMap::new();
+        ext.insert("preset".to_string(), json!("fredkin_3d"));
+        ext.insert("depth".to_string(), json!(4));
+        ext.insert("rows".to_string(), json!(4));
+        ext.insert("cols".to_string(), json!(4));
+        let gen = ca3d_factory(&ext).unwrap();
+        let frames = collect_frames(gen.as_ref(), 42, 5);
+        assert_eq!(frames.len(), 5);
+    }
+
+    #[test]
+    fn test_unknown_preset_rejected() {
+        let mut ext = HashMap::new();
+        ext.insert("preset".to_string(), json!("nonexistent"));
+        assert!(ca3d_factory(&ext).is_err());
     }
 }

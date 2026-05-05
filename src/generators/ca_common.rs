@@ -36,7 +36,7 @@ pub enum InitMode {
 }
 
 /// 2D 规则系统
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Rule2D {
     /// B/S 记法：birth/survival 包含触发转移的邻居计数
     /// 仅适用于 d_state == 2
@@ -49,10 +49,31 @@ pub enum Rule2D {
     Totalistic {
         transition_table: Vec<u8>,
     },
+    /// WireWorld：4 状态电子模拟规则
+    /// 状态: 0=空, 1=电子头, 2=电子尾, 3=铜(导体)
+    /// 规则: 空→空, 头→尾, 尾→铜, 铜→头(若恰好1或2个头邻居)
+    WireWorld,
+    /// 循环元胞自动机：状态循环递进
+    /// 若邻居中有 ≥ threshold 个处于下一状态，则前进到 (state+1) % n_states
+    Cyclic {
+        n_states: u8,
+        threshold: u8,
+    },
+    /// Hensel 各向同性非总量规则
+    /// 使用 512 项预编译查找表（含中心格状态位）
+    /// 索引 = (center_state as usize) * 256 + neighbor_8bit
+    Hensel {
+        table: [bool; 512],
+    },
+    /// 完整查找表规则（支持非各向同性，如 X-Rule）
+    /// 索引约定同 Hensel
+    LookupTable {
+        table: [bool; 512],
+    },
 }
 
 /// 3D 规则系统
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Rule3D {
     /// B/S 记法（3D）
     LifeLike3D {
@@ -63,6 +84,14 @@ pub enum Rule3D {
     Totalistic3D {
         transition_table: Vec<u8>,
     },
+    /// 3D 循环元胞自动机
+    Cyclic3D {
+        n_states: u8,
+        threshold: u8,
+    },
+    /// 3D Fredkin 奇偶自复制规则
+    /// 下一状态 = (所有邻居状态之和) % 2
+    Fredkin3D,
 }
 
 /// LifeLike 规则编译后的查找表

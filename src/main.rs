@@ -15,6 +15,7 @@ mod metadata;
 mod pipeline;
 mod scheduler;
 mod sink;
+mod view;
 
 use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
@@ -22,7 +23,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Once};
 
 use chrono::Utc;
-use clap::{Parser, ValueEnum};
+use clap::{Parser, Subcommand, ValueEnum};
 
 use crate::core::{CoreResult, OutputFormat};
 use crate::generators::register_all as register_all_generators;
@@ -104,6 +105,92 @@ pub struct CliArgs {
     pub no_progress: bool,
 }
 
+/// 顶层 CLI 命令枚举
+#[derive(Parser, Debug)]
+#[command(name = "StructGen-rs")]
+#[command(version = env!("CARGO_PKG_VERSION"))]
+#[command(about = "高性能程序化结构化数据生成器", long_about = None)]
+pub struct CliCommand {
+    #[command(subcommand)]
+    pub command: Commands,
+}
+
+/// CLI 子命令
+#[derive(Subcommand, Debug)]
+pub enum Commands {
+    /// 运行生成流水线（从 YAML 清单）
+    Run(CliArgs),
+
+    /// 启动元胞自动机实时可视化
+    View(ViewCliArgs),
+}
+
+/// View 子命令参数
+#[derive(Parser, Debug, Clone)]
+pub struct ViewCliArgs {
+    /// 生成器名称: ca | ca2d | ca3d
+    #[arg(short, long)]
+    pub generator: String,
+
+    /// 规则号(1D)或预设名: rule30, game_of_life, wireworld ...
+    #[arg(short, long)]
+    pub rule: Option<String>,
+
+    /// 随机种子
+    #[arg(long, default_value = "42")]
+    pub seed: u64,
+
+    /// 演化步数 (0=无限)
+    #[arg(long, default_value = "200")]
+    pub steps: usize,
+
+    /// 1D 网格宽度
+    #[arg(long, default_value = "128")]
+    pub width: usize,
+
+    /// 2D/3D 行数
+    #[arg(long, default_value = "64")]
+    pub rows: usize,
+
+    /// 2D/3D 列数
+    #[arg(long, default_value = "64")]
+    pub cols: usize,
+
+    /// 3D 深度
+    #[arg(long, default_value = "16")]
+    pub depth: usize,
+
+    /// 动画速度(毫秒/帧)
+    #[arg(long, default_value = "100")]
+    pub speed: u64,
+
+    /// 边界条件: periodic | fixed | reflective
+    #[arg(long, default_value = "periodic")]
+    pub boundary: String,
+
+    /// 初始化模式: random | single_center
+    #[arg(long, default_value = "random")]
+    pub init: String,
+}
+
+impl From<ViewCliArgs> for view::ViewArgs {
+    fn from(args: ViewCliArgs) -> Self {
+        view::ViewArgs {
+            generator: args.generator,
+            rule: args.rule,
+            seed: args.seed,
+            steps: args.steps,
+            width: args.width,
+            rows: args.rows,
+            cols: args.cols,
+            depth: args.depth,
+            speed: args.speed,
+            boundary: args.boundary,
+            init: args.init,
+        }
+    }
+}
+
 // ============================================================================
 // 适配器工厂
 // ============================================================================
@@ -141,8 +228,11 @@ fn main() {
         eprintln!("FATAL ERROR: {}\nPlease report this bug.", msg);
     }));
 
-    let args = CliArgs::parse();
-    let code = run(args);
+    let cli = CliCommand::parse();
+    let code = match cli.command {
+        Commands::Run(args) => run(args),
+        Commands::View(args) => view::launch_viewer(args.into()),
+    };
     std::process::exit(code);
 }
 

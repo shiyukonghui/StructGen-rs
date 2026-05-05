@@ -1,0 +1,155 @@
+# CA 著名规则预设端到端测试
+global:
+  output_dir: "tests/output/gen_ca_presets"
+  default_format: "Text"
+  log_level: "warn"
+
+tasks:
+  # ---- 1D 预设 ----
+  - name: "1d_rule110"
+    generator: "ca"
+    params:
+      seq_length: 20
+      extensions:
+        preset: "rule110"
+        width: 64
+    count: 1
+    seed: 42
+
+  - name: "1d_rule90"
+    generator: "ca"
+    params:
+      seq_length: 20
+      extensions:
+        preset: "rule90"
+        width: 64
+    count: 1
+    seed: 42
+
+  - name: "1d_rule184"
+    generator: "ca"
+    params:
+      seq_length: 20
+      extensions:
+        preset: "rule184"
+        width: 64
+    count: 1
+    seed: 42
+
+  # ---- 2D Life-like 预设 ----
+  - name: "2d_conway"
+    generator: "ca2d"
+    params:
+      seq_length: 50
+      extensions:
+        preset: "game_of_life"
+        rows: 32
+        cols: 32
+    count: 2
+    seed: 42
+
+  - name: "2d_highlife"
+    generator: "ca2d"
+    params:
+      seq_length: 50
+      extensions:
+        preset: "highlife"
+        rows: 32
+        cols: 32
+    count: 2
+    seed: 42
+
+  - name: "2d_day_night"
+    generator: "ca2d"
+    params:
+      seq_length: 50
+      extensions:
+        preset: "day_night"
+        rows: 32
+        cols: 32
+    count: 2
+    seed: 42
+
+  - name: "2d_seeds"
+    generator: "ca2d"
+    params:
+      seq_length: 50
+      extensions:
+        preset: "seeds"
+        rows: 32
+        cols: 32
+    count: 2
+    seed: 42
+
+  # ---- 2D WireWorld ----
+  - name: "2d_wireworld"
+    generator: "ca2d"
+    params:
+      seq_length: 100
+      extensions:
+        preset: "wireworld"
+        rows: 16
+        cols: 32
+    count: 2
+    seed: 42
+
+  # ---- 2D 循环 CA ----
+  - name: "2d_cyclic"
+    generator: "ca2d"
+    params:
+      seq_length: 64
+      extensions:
+        preset: "cyclic"
+        rows: 32
+        cols: 32
+    count: 2
+    seed: 42
+
+  # ---- 2D Ameyalli ----
+  - name: "2d_ameyalli"
+    generator: "ca2d"
+    params:
+      seq_length: 30
+      extensions:
+        preset: "ameyalli"
+        rows: 16
+        cols: 16
+    count: 1
+    seed: 42
+
+  # ---- 3D 预设 ----
+  - name: "3d_life"
+    generator: "ca3d"
+    params:
+      seq_length: 20
+      extensions:
+        preset: "life_3d"
+        depth: 8
+        rows: 8
+        cols: 8
+    count: 1
+    seed: 42
+
+  - name: "3d_fredkin"
+    generator: "ca3d"
+    params:
+      seq_length: 20
+      extensions:
+        preset: "fredkin_3d"
+        depth: 8
+        rows: 8
+        cols: 8
+    count: 1
+    seed: 42
+
+  - name: "3d_cyclic"
+    generator: "ca3d"
+    params:
+      seq_length: 20
+      extensions:
+        preset: "cyclic_3d"
+        depth: 8
+        rows: 8
+        cols: 8
+    count: 1
+    seed: 42

@@ -3,6 +3,7 @@ pub mod ca;
 pub mod ca2d;
 pub mod ca3d;
 pub mod ca_common;
+pub mod ca_rules;
 pub mod formal_grammar;
 pub mod ifs;
 pub mod logistic;

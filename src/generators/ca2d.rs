@@ -4,6 +4,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use super::ca_common::*;
+use super::ca_rules;
 use super::rng::SeedRng;
 use crate::core::*;
 
@@ -30,6 +31,21 @@ struct Ca2dParams {
     neighborhood: Neighborhood,
     #[serde(default)]
     init_mode: InitMode,
+    /// Hensel 各向同性非总量规则记法（仅 rule_type="hensel" 时使用）
+    #[serde(default)]
+    hensel_notation: Option<String>,
+    /// 128 字符十六进制查找表（仅 rule_type="lookuptable" 时使用）
+    #[serde(default)]
+    lookup_table_hex: Option<String>,
+    /// 512 项 0/1 查找表数组（仅 rule_type="lookuptable" 时使用）
+    #[serde(default)]
+    lookup_table_array: Option<Vec<u8>>,
+    /// 循环 CA 状态数（仅 rule_type="cyclic" 时使用）
+    #[serde(default = "default_n_states")]
+    n_states: u8,
+    /// 循环 CA 阈值（仅 rule_type="cyclic" 时使用）
+    #[serde(default = "default_threshold")]
+    threshold: u8,
 }
 
 fn default_rule_type() -> String {
@@ -50,6 +66,12 @@ fn default_rows() -> usize {
 fn default_cols() -> usize {
     64
 }
+fn default_n_states() -> u8 {
+    14
+}
+fn default_threshold() -> u8 {
+    1
+}
 
 impl Default for Ca2dParams {
     fn default() -> Self {
@@ -64,13 +86,19 @@ impl Default for Ca2dParams {
             boundary: Boundary::default(),
             neighborhood: Neighborhood::default(),
             init_mode: InitMode::default(),
+            hensel_notation: None,
+            lookup_table_hex: None,
+            lookup_table_array: None,
+            n_states: default_n_states(),
+            threshold: default_threshold(),
         }
     }
 }
 
 /// 2D 元胞自动机生成器
 ///
-/// 支持 Life-like (B/S 记法) 和 Totalistic 两种规则系统，
+/// 支持 Life-like (B/S 记法)、Totalistic、WireWorld、循环 CA、
+/// Hensel 各向同性非总量规则和完整查找表规则，
 /// 可配置多值离散状态、边界条件和邻域类型。
 pub struct CellularAutomaton2D {
     rule: Rule2D,
@@ -145,10 +173,70 @@ impl CellularAutomaton2D {
                         } else {
                             0
                         };
-                        // 确保结果在合法状态范围内
                         if dst[idx] >= d_state {
                             dst[idx] = 0;
                         }
+                    }
+                    Rule2D::WireWorld => {
+                        // WireWorld 转移规则:
+                        // 0(空)→0, 1(头)→2(尾), 2(尾)→3(铜), 3(铜)→1(头) 若恰好1或2个头邻居
+                        dst[idx] = match current {
+                            0 => 0,
+                            1 => 2,
+                            2 => 3,
+                            3 => {
+                                let mut head_count: usize = 0;
+                                for &(dr, dc) in offsets {
+                                    let n =
+                                        get_neighbor_2d(src, r, c, rows, cols, dr, dc, boundary);
+                                    if n == 1 {
+                                        head_count += 1;
+                                    }
+                                }
+                                if head_count == 1 || head_count == 2 {
+                                    1
+                                } else {
+                                    3
+                                }
+                            }
+                            _ => 0,
+                        };
+                    }
+                    Rule2D::Cyclic {
+                        n_states,
+                        threshold,
+                    } => {
+                        // 循环 CA: 若邻居中有 ≥ threshold 个处于下一状态，则前进
+                        let next_state = ((current as u16 + 1) % *n_states as u16) as u8;
+                        let mut next_count: usize = 0;
+                        for &(dr, dc) in offsets {
+                            let n = get_neighbor_2d(src, r, c, rows, cols, dr, dc, boundary);
+                            if n == next_state {
+                                next_count += 1;
+                            }
+                        }
+                        dst[idx] = if next_count >= *threshold as usize {
+                            next_state
+                        } else {
+                            current
+                        };
+                    }
+                    Rule2D::Hensel { table } | Rule2D::LookupTable { table } => {
+                        // 9 位邻域索引: bit0..7=8 邻居(按 MOORE_2D_OFFSETS 顺序), bit8=中心格
+                        // 索引 = (center_state) * 256 + neighbor_8bit
+                        let mut neighbor_bits: usize = 0;
+                        for (i, &(dr, dc)) in offsets.iter().enumerate() {
+                            let n = get_neighbor_2d(src, r, c, rows, cols, dr, dc, boundary);
+                            if n > 0 {
+                                neighbor_bits |= 1 << i;
+                            }
+                        }
+                        let index = (current as usize) * 256 + neighbor_bits;
+                        dst[idx] = if index < table.len() && table[index] {
+                            1
+                        } else {
+                            0
+                        };
                     }
                 }
             }
@@ -235,7 +323,9 @@ impl Generator for CellularAutomaton2D {
 
 /// 2D 元胞自动机工厂函数
 pub fn ca2d_factory(extensions: &HashMap<String, Value>) -> CoreResult<Box<dyn Generator>> {
-    let params: Ca2dParams = deserialize_extensions(extensions)?;
+    // 应用预设解析（若指定）
+    let ext = ca_rules::apply_preset_to_extensions(extensions, 2)?;
+    let params: Ca2dParams = deserialize_extensions(&ext)?;
 
     if params.rows == 0 {
         return Err(CoreError::InvalidParams(
@@ -315,18 +405,81 @@ pub fn ca2d_factory(extensions: &HashMap<String, Value>) -> CoreResult<Box<dyn G
             };
             (rule, None)
         }
+        "wireworld" => {
+            if params.d_state != 4 {
+                return Err(CoreError::InvalidParams(
+                    "WireWorld requires d_state == 4".into(),
+                ));
+            }
+            (Rule2D::WireWorld, None)
+        }
+        "cyclic" => {
+            if params.n_states < 2 {
+                return Err(CoreError::InvalidParams(
+                    "Cyclic CA requires n_states >= 2".into(),
+                ));
+            }
+            if params.threshold < 1 {
+                return Err(CoreError::InvalidParams(
+                    "Cyclic CA requires threshold >= 1".into(),
+                ));
+            }
+            // 循环 CA 的 d_state 由 n_states 决定
+            let rule = Rule2D::Cyclic {
+                n_states: params.n_states,
+                threshold: params.threshold,
+            };
+            (rule, None)
+        }
+        "hensel" => {
+            if params.d_state != 2 {
+                return Err(CoreError::InvalidParams(
+                    "Hensel rules require d_state == 2".into(),
+                ));
+            }
+            let notation = params.hensel_notation.as_deref().ok_or_else(|| {
+                CoreError::InvalidParams(
+                    "Hensel rule_type requires hensel_notation parameter".into(),
+                )
+            })?;
+            let table = ca_rules::parse_hensel_notation(notation)?;
+            (Rule2D::Hensel { table }, None)
+        }
+        "lookuptable" => {
+            if params.d_state != 2 {
+                return Err(CoreError::InvalidParams(
+                    "LookupTable rules require d_state == 2".into(),
+                ));
+            }
+            let table = if let Some(ref hex) = params.lookup_table_hex {
+                ca_rules::parse_lookup_hex(hex)?
+            } else if let Some(ref arr) = params.lookup_table_array {
+                ca_rules::parse_lookup_array(arr)?
+            } else {
+                return Err(CoreError::InvalidParams(
+                    "LookupTable rule_type requires lookup_table_hex or lookup_table_array parameter".into(),
+                ));
+            };
+            (Rule2D::LookupTable { table }, None)
+        }
         other => {
             return Err(CoreError::InvalidParams(format!(
-                "unknown rule_type '{}', expected 'lifelike' or 'totalistic'",
+                "unknown rule_type '{}', expected 'lifelike', 'totalistic', 'wireworld', 'cyclic', 'hensel', or 'lookuptable'",
                 other
             )));
         }
     };
 
+    // 循环 CA 需要覆盖 d_state
+    let effective_d_state = match &rule {
+        Rule2D::Cyclic { n_states, .. } => *n_states,
+        _ => params.d_state,
+    };
+
     Ok(Box::new(CellularAutomaton2D {
         rule,
         lut,
-        d_state: params.d_state,
+        d_state: effective_d_state,
         rows: params.rows,
         cols: params.cols,
         boundary: params.boundary,
@@ -380,7 +533,6 @@ mod tests {
 
     #[test]
     fn test_conway_life_blinker() {
-        // Blinker: 5×5 Fixed 网格，初始化为横向三格
         let mut extensions = HashMap::new();
         extensions.insert("rule_type".to_string(), json!("lifelike"));
         extensions.insert("birth".to_string(), json!([3]));
@@ -393,17 +545,14 @@ mod tests {
         extensions.insert("init_mode".to_string(), json!("singlecenter"));
 
         let gen = ca2d_factory(&extensions).unwrap();
-        // 手动构造初始状态：横向 blinker
         let params = GenParams::simple(3);
         let frames = gen.generate_stream(42, &params).unwrap().collect::<Vec<_>>();
         assert_eq!(frames.len(), 3);
 
-        // 每帧应为 5×5 = 25 个值
         for f in &frames {
             assert_eq!(f.state.values.len(), 25);
         }
 
-        // 验证所有值在 [0, 1] 范围内
         for f in &frames {
             for v in &f.state.values {
                 let val = v.as_integer().unwrap();
@@ -478,7 +627,6 @@ mod tests {
         let frames = gen.generate_stream(12345, &params).unwrap().collect::<Vec<_>>();
         assert_eq!(frames.len(), 1);
 
-        // 第一帧应有且仅有一个活格子（中心）
         let alive_count = frames[0]
             .state
             .values
@@ -487,7 +635,6 @@ mod tests {
             .count();
         assert_eq!(alive_count, 1, "SingleCenter init should have exactly 1 alive cell");
 
-        // 中心格子位于 (2, 2)
         let center_idx = 2 * 5 + 2;
         assert_eq!(frames[0].state.values[center_idx].as_integer().unwrap(), 1);
     }
@@ -531,7 +678,6 @@ mod tests {
         let mut extensions = HashMap::new();
         extensions.insert("rule_type".to_string(), json!("totalistic"));
         extensions.insert("d_state".to_string(), json!(4));
-        // Totalistic 表：max_sum = 8 * (4-1) = 24, 需要 len > 24
         let table: Vec<u8> = (0..25).map(|i| (i % 4) as u8).collect();
         extensions.insert("totalistic_table".to_string(), json!(table));
         extensions.insert("rows".to_string(), json!(4));
@@ -597,7 +743,7 @@ mod tests {
         let mut extensions = HashMap::new();
         extensions.insert("rule_type".to_string(), json!("totalistic"));
         extensions.insert("d_state".to_string(), json!(4));
-        extensions.insert("totalistic_table".to_string(), json!([0, 1])); // 太短
+        extensions.insert("totalistic_table".to_string(), json!([0, 1]));
         let result = ca2d_factory(&extensions);
         assert!(result.is_err());
     }
@@ -631,9 +777,257 @@ mod tests {
         let params = GenParams::simple(3);
         let frames = gen.generate_stream(0, &params).unwrap().collect::<Vec<_>>();
         assert_eq!(frames.len(), 3);
-        // 默认 64×64
         for f in &frames {
             assert_eq!(f.state.values.len(), 64 * 64);
         }
+    }
+
+    // ---- WireWorld 测试 ----
+
+    #[test]
+    fn test_wireworld_signal_propagation() {
+        let mut ext = HashMap::new();
+        ext.insert("rule_type".to_string(), json!("wireworld"));
+        ext.insert("d_state".to_string(), json!(4));
+        ext.insert("rows".to_string(), json!(1));
+        ext.insert("cols".to_string(), json!(5));
+        ext.insert("boundary".to_string(), json!("fixed"));
+        ext.insert("init_mode".to_string(), json!("singlecenter"));
+        let gen = ca2d_factory(&ext).unwrap();
+
+        // 手动构建初始状态：头-尾-铜-铜-铜
+        let params = GenParams::simple(5);
+        let frames = gen.generate_stream(0, &params).unwrap().collect::<Vec<_>>();
+        assert_eq!(frames.len(), 5);
+        // 所有帧应有 5 个单元格，值在 0..4 范围内
+        for f in &frames {
+            assert_eq!(f.state.values.len(), 5);
+            for v in &f.state.values {
+                let val = v.as_integer().unwrap();
+                assert!(val >= 0 && val < 4, "WireWorld state should be 0-3, got {}", val);
+            }
+        }
+    }
+
+    #[test]
+    fn test_wireworld_requires_dstate4() {
+        let mut ext = HashMap::new();
+        ext.insert("rule_type".to_string(), json!("wireworld"));
+        ext.insert("d_state".to_string(), json!(2));
+        assert!(ca2d_factory(&ext).is_err());
+    }
+
+    // ---- 循环 CA 测试 ----
+
+    #[test]
+    fn test_cyclic_evolution() {
+        let mut ext = HashMap::new();
+        ext.insert("rule_type".to_string(), json!("cyclic"));
+        ext.insert("n_states".to_string(), json!(4));
+        ext.insert("threshold".to_string(), json!(1));
+        ext.insert("rows".to_string(), json!(8));
+        ext.insert("cols".to_string(), json!(8));
+        let gen = ca2d_factory(&ext).unwrap();
+        let frames = collect_frames(gen.as_ref(), 42, 10);
+        assert_eq!(frames.len(), 10);
+        // 所有值应在 0..4 范围内
+        for f in &frames {
+            for v in &f.state.values {
+                let val = v.as_integer().unwrap();
+                assert!(val >= 0 && val < 4, "Cyclic CA state should be 0-3, got {}", val);
+            }
+        }
+    }
+
+    #[test]
+    fn test_cyclic_requires_nstates2() {
+        let mut ext = HashMap::new();
+        ext.insert("rule_type".to_string(), json!("cyclic"));
+        ext.insert("n_states".to_string(), json!(1));
+        assert!(ca2d_factory(&ext).is_err());
+    }
+
+    // ---- Hensel 测试 ----
+
+    #[test]
+    fn test_hensel_conway_equals_lifelike() {
+        // Hensel B3/S23 应与 LifeLike B3/S23 产生相同的演化
+        let mut hensel_ext = HashMap::new();
+        hensel_ext.insert("rule_type".to_string(), json!("hensel"));
+        hensel_ext.insert("hensel_notation".to_string(), json!("B3/S23"));
+        hensel_ext.insert("rows".to_string(), json!(16));
+        hensel_ext.insert("cols".to_string(), json!(16));
+
+        let mut ll_ext = HashMap::new();
+        ll_ext.insert("rule_type".to_string(), json!("lifelike"));
+        ll_ext.insert("birth".to_string(), json!([3]));
+        ll_ext.insert("survival".to_string(), json!([2, 3]));
+        ll_ext.insert("rows".to_string(), json!(16));
+        ll_ext.insert("cols".to_string(), json!(16));
+
+        let gen_hensel = ca2d_factory(&hensel_ext).unwrap();
+        let gen_ll = ca2d_factory(&ll_ext).unwrap();
+
+        let params = GenParams::simple(10);
+        let frames_hensel = gen_hensel.generate_stream(42, &params).unwrap().collect::<Vec<_>>();
+        let frames_ll = gen_ll.generate_stream(42, &params).unwrap().collect::<Vec<_>>();
+
+        for i in 0..10 {
+            assert_eq!(
+                frames_hensel[i].state.values,
+                frames_ll[i].state.values,
+                "Hensel B3/S23 should match LifeLike B3/S23 at frame {}",
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn test_hensel_ameyalli() {
+        let mut ext = HashMap::new();
+        ext.insert("rule_type".to_string(), json!("hensel"));
+        ext.insert("hensel_notation".to_string(), json!("B2ci3ar4krtz5cq6c7ce/S01e2ek3qj4kt5ceayq6cki7c8"));
+        ext.insert("rows".to_string(), json!(8));
+        ext.insert("cols".to_string(), json!(8));
+
+        let gen = ca2d_factory(&ext).unwrap();
+        let frames = collect_frames(gen.as_ref(), 42, 5);
+        assert_eq!(frames.len(), 5);
+    }
+
+    #[test]
+    fn test_hensel_requires_notation() {
+        let mut ext = HashMap::new();
+        ext.insert("rule_type".to_string(), json!("hensel"));
+        assert!(ca2d_factory(&ext).is_err());
+    }
+
+    // ---- LookupTable 测试 ----
+
+    #[test]
+    fn test_lookuptable_from_array() {
+        // 构建一个简单的查找表：Conway's Life B3/S23
+        let mut table = vec![0u8; 512];
+        for pattern in 0u8..=255 {
+            let count = pattern.count_ones() as usize;
+            // B 部：center=0，index=pattern
+            if count == 3 {
+                table[pattern as usize] = 1;
+            }
+            // S 部：center=1，index=256+pattern
+            if count == 2 || count == 3 {
+                table[256 + pattern as usize] = 1;
+            }
+        }
+
+        let mut ext = HashMap::new();
+        ext.insert("rule_type".to_string(), json!("lookuptable"));
+        ext.insert("lookup_table_array".to_string(), json!(table));
+        ext.insert("rows".to_string(), json!(8));
+        ext.insert("cols".to_string(), json!(8));
+
+        let gen = ca2d_factory(&ext).unwrap();
+        let frames = collect_frames(gen.as_ref(), 42, 5);
+        assert_eq!(frames.len(), 5);
+    }
+
+    #[test]
+    fn test_lookuptable_requires_data() {
+        let mut ext = HashMap::new();
+        ext.insert("rule_type".to_string(), json!("lookuptable"));
+        assert!(ca2d_factory(&ext).is_err());
+    }
+
+    // ---- 预设测试 ----
+
+    #[test]
+    fn test_preset_game_of_life() {
+        let mut ext = HashMap::new();
+        ext.insert("preset".to_string(), json!("game_of_life"));
+        ext.insert("rows".to_string(), json!(8));
+        ext.insert("cols".to_string(), json!(8));
+        let gen = ca2d_factory(&ext).unwrap();
+        let frames = collect_frames(gen.as_ref(), 42, 5);
+        assert_eq!(frames.len(), 5);
+    }
+
+    #[test]
+    fn test_preset_highlife() {
+        let mut ext = HashMap::new();
+        ext.insert("preset".to_string(), json!("highlife"));
+        ext.insert("rows".to_string(), json!(8));
+        ext.insert("cols".to_string(), json!(8));
+        let gen = ca2d_factory(&ext).unwrap();
+        let frames = collect_frames(gen.as_ref(), 42, 5);
+        assert_eq!(frames.len(), 5);
+    }
+
+    #[test]
+    fn test_preset_wireworld() {
+        let mut ext = HashMap::new();
+        ext.insert("preset".to_string(), json!("wireworld"));
+        ext.insert("rows".to_string(), json!(8));
+        ext.insert("cols".to_string(), json!(16));
+        let gen = ca2d_factory(&ext).unwrap();
+        let frames = collect_frames(gen.as_ref(), 42, 10);
+        assert_eq!(frames.len(), 10);
+        // WireWorld 应有 4 种状态
+        for f in &frames {
+            for v in &f.state.values {
+                let val = v.as_integer().unwrap();
+                assert!(val >= 0 && val < 4);
+            }
+        }
+    }
+
+    #[test]
+    fn test_preset_cyclic() {
+        let mut ext = HashMap::new();
+        ext.insert("preset".to_string(), json!("cyclic"));
+        ext.insert("rows".to_string(), json!(8));
+        ext.insert("cols".to_string(), json!(8));
+        let gen = ca2d_factory(&ext).unwrap();
+        let frames = collect_frames(gen.as_ref(), 42, 10);
+        assert_eq!(frames.len(), 10);
+    }
+
+    #[test]
+    fn test_preset_ameyalli() {
+        let mut ext = HashMap::new();
+        ext.insert("preset".to_string(), json!("ameyalli"));
+        ext.insert("rows".to_string(), json!(8));
+        ext.insert("cols".to_string(), json!(8));
+        let gen = ca2d_factory(&ext).unwrap();
+        let frames = collect_frames(gen.as_ref(), 42, 5);
+        assert_eq!(frames.len(), 5);
+    }
+
+    #[test]
+    fn test_preset_day_night() {
+        let mut ext = HashMap::new();
+        ext.insert("preset".to_string(), json!("day_night"));
+        ext.insert("rows".to_string(), json!(8));
+        ext.insert("cols".to_string(), json!(8));
+        let gen = ca2d_factory(&ext).unwrap();
+        let frames = collect_frames(gen.as_ref(), 42, 5);
+        assert_eq!(frames.len(), 5);
+    }
+
+    #[test]
+    fn test_unknown_preset_rejected() {
+        let mut ext = HashMap::new();
+        ext.insert("preset".to_string(), json!("nonexistent_rule"));
+        assert!(ca2d_factory(&ext).is_err());
+    }
+
+    #[test]
+    fn test_preset_preserves_grid_params() {
+        let mut ext = HashMap::new();
+        ext.insert("preset".to_string(), json!("highlife"));
+        ext.insert("rows".to_string(), json!(10));
+        ext.insert("cols".to_string(), json!(20));
+        let gen = ca2d_factory(&ext).unwrap();
+        let frames = collect_frames(gen.as_ref(), 42, 2);
+        assert_eq!(frames[0].state.values.len(), 10 * 20);
     }
 }

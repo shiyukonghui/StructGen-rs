@@ -194,7 +194,9 @@ impl Generator for CellularAutomaton {
 
 /// CA 生成器工厂函数
 pub fn ca_factory(extensions: &HashMap<String, Value>) -> CoreResult<Box<dyn Generator>> {
-    let ca_params: CaParams = deserialize_extensions(extensions)?;
+    // 应用预设解析（若指定）
+    let ext = super::ca_rules::apply_preset_to_extensions(extensions, 1)?;
+    let ca_params: CaParams = deserialize_extensions(&ext)?;
 
     if ca_params.width == 0 {
         return Err(CoreError::InvalidParams(
@@ -450,5 +452,96 @@ mod tests {
             .take(50)
             .collect::<Vec<_>>();
         assert_eq!(frames.len(), 50);
+    }
+
+    // ---- 预设测试 ----
+
+    #[test]
+    fn test_preset_rule110() {
+        let mut ext = HashMap::new();
+        ext.insert("preset".to_string(), json!("rule110"));
+        let gen = ca_factory(&ext).unwrap();
+        // 验证 LUT 与手动指定 rule=110 一致
+        let expected_lut = CellularAutomaton::build_lut(110);
+        assert_eq!(gen.name(), "cellular_automaton");
+        let params = GenParams::simple(5);
+        let frames = gen.generate_stream(42, &params).unwrap().collect::<Vec<_>>();
+        assert_eq!(frames.len(), 5);
+    }
+
+    #[test]
+    fn test_preset_rule90() {
+        let mut ext = HashMap::new();
+        ext.insert("preset".to_string(), json!("rule90"));
+        let gen = ca_factory(&ext).unwrap();
+        let params = GenParams::simple(3);
+        let frames = gen.generate_stream(42, &params).unwrap().collect::<Vec<_>>();
+        assert_eq!(frames.len(), 3);
+    }
+
+    #[test]
+    fn test_preset_rule54() {
+        let mut ext = HashMap::new();
+        ext.insert("preset".to_string(), json!("rule54"));
+        let gen = ca_factory(&ext).unwrap();
+        let params = GenParams::simple(3);
+        let frames = gen.generate_stream(42, &params).unwrap().collect::<Vec<_>>();
+        assert_eq!(frames.len(), 3);
+    }
+
+    #[test]
+    fn test_preset_rule184() {
+        let mut ext = HashMap::new();
+        ext.insert("preset".to_string(), json!("rule184"));
+        let gen = ca_factory(&ext).unwrap();
+        let params = GenParams::simple(3);
+        let frames = gen.generate_stream(42, &params).unwrap().collect::<Vec<_>>();
+        assert_eq!(frames.len(), 3);
+    }
+
+    #[test]
+    fn test_preset_rule30_default_equivalent() {
+        // rule30 预设应与默认行为（rule=30）一致
+        let mut ext = HashMap::new();
+        ext.insert("preset".to_string(), json!("rule30"));
+        let gen_preset = ca_factory(&ext).unwrap();
+        let gen_default = ca_factory(&HashMap::new()).unwrap();
+
+        let params = GenParams::simple(10);
+        let frames_preset = gen_preset
+            .generate_stream(77, &params)
+            .unwrap()
+            .collect::<Vec<_>>();
+        let frames_default = gen_default
+            .generate_stream(77, &params)
+            .unwrap()
+            .collect::<Vec<_>>();
+
+        for i in 0..10 {
+            assert_eq!(
+                frames_preset[i].state.values,
+                frames_default[i].state.values,
+                "rule30 preset should match default at frame {}",
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn test_preset_preserves_grid_params() {
+        let mut ext = HashMap::new();
+        ext.insert("preset".to_string(), json!("rule110"));
+        ext.insert("width".to_string(), json!(64));
+        let gen = ca_factory(&ext).unwrap();
+        let params = GenParams::simple(3);
+        let frames = gen.generate_stream(42, &params).unwrap().collect::<Vec<_>>();
+        assert_eq!(frames[0].state.values.len(), 64);
+    }
+
+    #[test]
+    fn test_unknown_preset_rejected() {
+        let mut ext = HashMap::new();
+        ext.insert("preset".to_string(), json!("rule999"));
+        assert!(ca_factory(&ext).is_err());
     }
 }
