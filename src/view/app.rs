@@ -267,6 +267,14 @@ fn build_gen_params(args: &ViewArgs) -> Result<GenParams, String> {
             grid_size_3d = None;
         }
         "ca2d" | "cellular_automaton_2d" => {
+            extensions.insert(
+                "rows".into(),
+                serde_json::Value::Number(args.rows.into()),
+            );
+            extensions.insert(
+                "cols".into(),
+                serde_json::Value::Number(args.cols.into()),
+            );
             grid_size = Some(GridSize {
                 rows: args.rows,
                 cols: args.cols,
@@ -274,6 +282,18 @@ fn build_gen_params(args: &ViewArgs) -> Result<GenParams, String> {
             grid_size_3d = None;
         }
         "ca3d" | "cellular_automaton_3d" => {
+            extensions.insert(
+                "depth".into(),
+                serde_json::Value::Number(args.depth.into()),
+            );
+            extensions.insert(
+                "rows".into(),
+                serde_json::Value::Number(args.rows.into()),
+            );
+            extensions.insert(
+                "cols".into(),
+                serde_json::Value::Number(args.cols.into()),
+            );
             grid_size = None;
             grid_size_3d = Some(GridSize3D {
                 depth: args.depth,
@@ -322,7 +342,7 @@ fn infer_d_state(args: &ViewArgs) -> u8 {
     if let Some(rule) = &args.rule {
         match rule.as_str() {
             "wireworld" => 4,
-            "cyclic" | "cyclic_3d" => 16,
+            "cyclic" | "cyclic_3d" => 14,
             _ => 2,
         }
     } else {

@@ -71,7 +71,6 @@ impl Render3D {
         } else {
             (current_step - base).saturating_sub(1).min(buf_len - 1)
         };
-        let frame = &frames[frame_idx];
         let frame = match frames.get(frame_idx) {
             Some(f) => f,
             None => {
