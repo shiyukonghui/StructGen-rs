@@ -29,7 +29,7 @@ use crate::core::{CoreResult, OutputFormat};
 use crate::generators::register_all as register_all_generators;
 use crate::metadata::{init_logger, write_metadata, ProgressTracker};
 use crate::pipeline::register_all as register_all_processors;
-use crate::sink::{BinaryAdapter, ParquetAdapter, SinkAdapter, TextAdapter};
+use crate::sink::{BinaryAdapter, NpyAdapter, ParquetAdapter, SinkAdapter, TextAdapter};
 
 // ============================================================================
 // 退出码常量
@@ -58,6 +58,8 @@ pub enum CliFormat {
     Text,
     /// 紧凑二进制格式
     Binary,
+    /// NumPy .npy 格式
+    Npy,
 }
 
 impl From<CliFormat> for OutputFormat {
@@ -66,6 +68,7 @@ impl From<CliFormat> for OutputFormat {
             CliFormat::Parquet => OutputFormat::Parquet,
             CliFormat::Text => OutputFormat::Text,
             CliFormat::Binary => OutputFormat::Binary,
+            CliFormat::Npy => OutputFormat::Npy,
         }
     }
 }
@@ -201,6 +204,7 @@ fn create_adapter(format: OutputFormat) -> CoreResult<Box<dyn SinkAdapter>> {
         OutputFormat::Parquet => Ok(Box::new(ParquetAdapter::new())),
         OutputFormat::Text => Ok(Box::new(TextAdapter::new())),
         OutputFormat::Binary => Ok(Box::new(BinaryAdapter::new())),
+        OutputFormat::Npy => Ok(Box::new(NpyAdapter::new())),
     }
 }
 

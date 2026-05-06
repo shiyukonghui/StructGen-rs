@@ -1,6 +1,10 @@
 /// 基于种子的简单确定性 PRNG (Xorshift64)
 pub(crate) struct SeedRng {
     state: u64,
+    /// Box-Muller 缓存：是否有缓存的正态样本
+    has_spare: bool,
+    /// Box-Muller 缓存：缓存的第二个正态样本
+    spare: f64,
 }
 
 impl SeedRng {
@@ -11,7 +15,11 @@ impl SeedRng {
         } else {
             seed
         };
-        SeedRng { state: seed }
+        SeedRng {
+            state: seed,
+            has_spare: false,
+            spare: 0.0,
+        }
     }
 
     /// 生成下一个 u64 随机数
@@ -48,5 +56,37 @@ impl SeedRng {
     /// 具有更好的统计特性。
     pub fn next_bool(&mut self) -> bool {
         (self.next_u64() >> 63) & 1 == 1
+    }
+
+    /// 使用 Box-Muller 变换生成标准正态分布 N(0, 1) 样本
+    ///
+    /// 每次调用消耗 2 个 Uniform(0,1) 样本，产生 2 个正态样本，
+    /// 缓存第二个供下次调用使用。
+    pub fn next_normal(&mut self) -> f64 {
+        if self.has_spare {
+            self.has_spare = false;
+            return self.spare;
+        }
+
+        let u1: f64;
+        let u2: f64;
+        loop {
+            let raw = self.next_f64();
+            if raw > 1e-30 {
+                u1 = raw;
+                u2 = self.next_f64();
+                break;
+            }
+            // u1 过小会导致 ln(0) 下溢，重新采样
+        }
+
+        let mag = (-2.0 * u1.ln()).sqrt();
+        let z0 = mag * (2.0 * std::f64::consts::PI * u2).cos();
+        let z1 = mag * (2.0 * std::f64::consts::PI * u2).sin();
+
+        self.has_spare = true;
+        self.spare = z1;
+
+        z0
     }
 }

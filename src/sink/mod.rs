@@ -10,6 +10,7 @@
 pub mod adapter;
 pub mod binary;
 pub mod factory;
+pub mod npy;
 pub mod parquet;
 pub mod text;
 
@@ -19,6 +20,7 @@ pub use adapter::{format_output_filename, OutputConfig, OutputStats, SinkAdapter
 pub use factory::SinkAdapterFactory;
 // 重导出具体适配器实现
 pub use binary::BinaryAdapter;
+pub use npy::NpyAdapter;
 pub use parquet::ParquetAdapter;
 pub use text::TextAdapter;
 

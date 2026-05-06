@@ -10,7 +10,7 @@ StructGen-rs 是一个基于 Rust 的**可扩展程序化数据生成框架**，
 
 ### 核心特性
 
-- **9 种内置生成器**：元胞自动机、混沌系统 (Lorenz/Logistic)、N 体引力模拟、形式语言 (LSystem/形式文法)、虚拟执行机 (AlgorithmVM)、布尔网络、IFS 分形
+- **12 种内置生成器**：元胞自动机 (1D/2D/3D)、神经元胞自动机 (NCA)、混沌系统 (Lorenz/Logistic)、N 体引力模拟、形式语言 (LSystem/形式文法)、虚拟执行机 (AlgorithmVM)、布尔网络、IFS 分形
 - **3 种输出格式**：Parquet (列式)、Text (Unicode 文本)、Binary (紧凑二进制)
 - **6 种后处理器**：标准化、去重、差分编码、令牌映射、截断拼接、透传
 - **确定性复现**：基于 SHA2 的种子派生，同一配置 + 种子 → 完全一致的输出
@@ -164,7 +164,7 @@ extensions:
 
 ## 生成器参考
 
-StructGen-rs 内置 **9 种生成器**，每种可同时通过短名和长名注册。
+StructGen-rs 内置 **12 种生成器**，每种可同时通过短名和长名注册。
 
 ### 生成器注册表
 
@@ -179,6 +179,31 @@ StructGen-rs 内置 **9 种生成器**，每种可同时通过短名和长名注
 | 布尔网络 | `boolean_network` | 网络状态向量 | Bool |
 | 迭代函数系统 | `ifs` | 分形点集 | Float |
 | 形式文法 | `formal_grammar` | 推导序列 | Integer |
+| 2D 元胞自动机 | `ca2d` / `cellular_automaton_2d` | 2D 网格演化 | Integer |
+| 3D 元胞自动机 | `ca3d` / `cellular_automaton_3d` | 3D 网格演化 | Integer |
+| 2D 神经元胞自动机 | `nca2d` / `neural_cellular_automaton_2d` | NCA 网格演化 | Integer |
+
+---
+
+### 支持的著名规则
+
+**1D 规则（ca 生成器）**：
+- Rule 30：混沌、伪随机
+- Rule 90：谢尔宾斯基三角形
+- Rule 110：图灵完备
+- Rule 184：交通流模型
+
+**2D 规则（ca2d 生成器）**：
+- Conway's Game of Life (B3/S23)：经典生命游戏
+- HighLife (B36/S23)：支持复制体
+- WireWorld：4 状态电子线路模拟
+- Day & Night (B3678/S34678)：对称规则
+- 循环 CA：螺旋波形态
+
+**3D 规则（ca3d 生成器）**：
+- 3D Life (B567/S56)：3D 滑翔机
+- 3D 循环 CA：嵌套壳状结构
+- Fredkin 规则：自我复制
 
 ---
 
@@ -451,6 +476,155 @@ N 个节点的布尔网络。每个节点有唯一的 3 输入布尔函数和随
 
 ---
 
+### `ca2d` — 2D 元胞自动机
+
+支持 Life-like、Totalistic、WireWorld、Cyclic、Hensel、LookupTable 六种规则类型的 2D 元胞自动机。
+
+**参数：**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `rule_type` | `String` | `"lifelike"` | 规则类型：`lifelike` / `totalistic` / `wireworld` / `cyclic` / `hensel` / `lookuptable` |
+| `birth` | `[u8]` | `[3]` | Life-like 出生条件（默认 Conway's Game of Life） |
+| `survival` | `[u8]` | `[2, 3]` | Life-like 存活条件 |
+| `totalistic_table` | `[u8]` | — | Totalistic 规则查表 |
+| `d_state` | `u8` | `2` | 状态数 |
+| `rows` | `usize` | `64` | 网格行数 |
+| `cols` | `usize` | `64` | 网格列数 |
+| `boundary` | `String` | `"periodic"` | 边界条件：`periodic` / `fixed` / `reflective` |
+| `neighborhood` | `String` | `"moore"` | 邻域类型：`moore` / `vonneumann` |
+| `init_mode` | `String` | `"random"` | 初始化模式：`random` / `single_center` |
+| `hensel_notation` | `String` | — | Hensel 记法（如 `"B36/S23"`，仅 hensel 规则类型使用） |
+| `lookup_table_hex` | `String` | — | 十六进制查找表（128 字符，仅 lookuptable 规则类型使用） |
+| `n_states` | `u8` | `14` | 循环 CA 状态数（仅 cyclic 规则类型使用） |
+| `threshold` | `u8` | `1` | 循环 CA 阈值（仅 cyclic 规则类型使用） |
+
+**示例：**
+
+```yaml
+# Conway's Game of Life
+- name: "ca_2d_life"
+  generator: "ca2d"
+  params:
+    seq_length: 64
+    extensions:
+      rule_type: "lifelike"
+      birth: [3]
+      survival: [2, 3]
+      rows: 32
+      cols: 32
+  count: 400000
+  seed: 2024
+
+# WireWorld 电子模拟
+- name: "ca_2d_wireworld"
+  generator: "ca2d"
+  params:
+    seq_length: 100
+    extensions:
+      rule_type: "wireworld"
+      rows: 32
+      cols: 32
+  count: 10000
+  seed: 100
+
+# 循环 CA 螺旋波
+- name: "ca_2d_cyclic"
+  generator: "ca2d"
+  params:
+    seq_length: 200
+    extensions:
+      rule_type: "cyclic"
+      n_states: 14
+      threshold: 1
+      rows: 64
+      cols: 64
+  count: 10000
+  seed: 200
+```
+
+---
+
+### `ca3d` — 3D 元胞自动机
+
+支持 Life-like、Totalistic、Cyclic、Fredkin 四种规则类型的 3D 元胞自动机。
+
+**参数：**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `rule_type` | `String` | `"lifelike"` | 规则类型：`lifelike` / `totalistic` / `cyclic` / `fredkin` |
+| `birth` | `[u8]` | `[5, 6, 7]` | 3D Life-like 出生条件 |
+| `survival` | `[u8]` | `[5, 6]` | 3D Life-like 存活条件 |
+| `d_state` | `u8` | `2` | 状态数 |
+| `depth` | `usize` | `16` | 网格深度 |
+| `rows` | `usize` | `16` | 网格行数 |
+| `cols` | `usize` | `16` | 网格列数 |
+| `boundary` | `String` | `"periodic"` | 边界条件：`periodic` / `fixed` / `reflective` |
+| `neighborhood` | `String` | `"moore"` | 邻域类型：`moore`(26邻居) / `vonneumann`(6邻居) |
+| `init_mode` | `String` | `"random"` | 初始化模式：`random` / `single_center` |
+| `n_states` | `u8` | `14` | 循环 CA 状态数（仅 cyclic 规则类型使用） |
+| `threshold` | `u8` | `1` | 循环 CA 阈值（仅 cyclic 规则类型使用） |
+
+**示例：**
+
+```yaml
+# 3D Life
+- name: "ca_3d_life"
+  generator: "ca3d"
+  params:
+    seq_length: 32
+    extensions:
+      rule_type: "lifelike"
+      birth: [5, 6, 7]
+      survival: [5, 6]
+      depth: 8
+      rows: 8
+      cols: 8
+  count: 400000
+  seed: 2025
+```
+
+---
+
+### `nca2d` — 2D 神经元胞自动机
+
+纯 Rust 实现的 2D 神经元胞自动机（Neural Cellular Automaton），每个规则约 584 个参数。通过小型神经网络学习局部转换规则。
+
+**参数：**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `d_state` | `u8` | `10` | 状态数/颜色数 |
+| `n_groups` | `u8` | `1` | 规则组数 |
+| `rows` | `usize` | `12` | 网格行数 |
+| `cols` | `usize` | `12` | 网格列数 |
+| `identity_bias` | `f64` | `0.0` | 身份偏置 |
+| `temperature` | `f64` | `0.0` | 采样温度（0.0 为确定性模式） |
+| `hidden_dim` | `usize` | `16` | 隐藏层维度 |
+| `conv_features` | `usize` | `4` | 卷积特征数 |
+
+**示例：**
+
+```yaml
+# 2D NCA 神经元胞自动机
+- name: "nca_2d_gen"
+  generator: "nca2d"
+  params:
+    seq_length: 50
+    extensions:
+      d_state: 10
+      rows: 12
+      cols: 12
+      hidden_dim: 16
+      conv_features: 4
+      temperature: 0.0
+  count: 10000
+  seed: 300
+```
+
+---
+
 ## 后处理管道
 
 管道（Pipeline）在生成器输出和文件写入之间，对帧序列进行变换处理。处理器按 `pipeline` 列表顺序串联执行。
@@ -672,7 +846,7 @@ src/
 │   ├── generator.rs     # Generator trait 定义
 │   ├── params.rs        # 参数和配置类型
 │   └── registry.rs      # 生成器注册表
-├── generators/          # 9 种内置生成器
+├── generators/          # 12 种内置生成器
 ├── pipeline/            # 6 种后处理器
 ├── sink/                # 3 种输出格式适配器
 ├── scheduler/           # 任务调度层

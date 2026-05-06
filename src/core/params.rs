@@ -15,6 +15,8 @@ pub enum OutputFormat {
     Text,
     /// 内存映射二进制原始转储
     Binary,
+    /// NumPy .npy 格式（Python 友好）
+    Npy,
 }
 
 /// 日志级别枚举

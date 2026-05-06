@@ -24,12 +24,8 @@ static INITIALIZED: AtomicBool = AtomicBool::new(false);
 /// * `Ok(())` - 日志系统初始化成功
 /// * `Err(CoreError::ConfigError)` - 日志级别无效或日志系统已初始化
 pub fn init_logger(log_level: &str, log_file: Option<&Path>) -> CoreResult<()> {
-    if INITIALIZED.load(Ordering::Acquire) {
-        // 日志系统已初始化，非致命——允许重复调用以支持测试场景
-        return Ok(());
-    }
-
-    let _level_filter = match log_level.to_lowercase().as_str() {
+    // 无论是否已初始化，都先校验日志级别有效性
+    let level_filter = match log_level.to_lowercase().as_str() {
         "trace" => tracing_subscriber::filter::LevelFilter::TRACE,
         "debug" => tracing_subscriber::filter::LevelFilter::DEBUG,
         "info" => tracing_subscriber::filter::LevelFilter::INFO,
@@ -37,6 +33,14 @@ pub fn init_logger(log_level: &str, log_file: Option<&Path>) -> CoreResult<()> {
         "error" => tracing_subscriber::filter::LevelFilter::ERROR,
         _ => return Err(CoreError::ConfigError(format!("无效的日志级别: {}", log_level))),
     };
+
+    if INITIALIZED.load(Ordering::Acquire) {
+        // 日志系统已初始化，非致命——允许重复调用以支持测试场景
+        let _ = level_filter; // 已校验，忽略未使用警告
+        return Ok(());
+    }
+
+    let _level_filter = level_filter;
 
     let console_layer = tracing_subscriber::fmt::layer()
         .with_ansi(true)
@@ -103,7 +107,7 @@ mod tests {
 
     #[test]
     fn test_init_logger_full_flow() {
-        // 1. 无效日志级别（总是在初始化前可测试）
+        // 1. 无效日志级别（无论日志系统是否已初始化都会校验）
         let result = init_logger("banana", None);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("无效的日志级别"));
