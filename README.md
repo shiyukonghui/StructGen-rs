@@ -117,6 +117,91 @@ structgen-rs --manifest <FILE> [OPTIONS]
 
 ---
 
+## 实时查看器
+
+StructGen-rs 内置基于 egui/eframe 的实时可视化查看器，支持 1D/2D/3D 元胞自动机和 2D 神经元胞自动机（NCA2D）的动态渲染。需要启用 `view` feature 编译。
+
+### 编译
+
+```bash
+cargo build --features view --release
+```
+
+### 启动
+
+```bash
+structgen-rs view --generator <生成器> [选项]
+```
+
+### 支持的生成器
+
+| 生成器 | `--generator` 值 | 渲染模式 |
+|--------|-------------------|----------|
+| 1D 元胞自动机 | `ca` | 时空图（逐行滚动） |
+| 2D 元胞自动机 | `ca2d` | 网格动画 |
+| 3D 元胞自动机 | `ca3d` | 深度层切片 |
+| 2D 神经元胞自动机 | `nca2d` | 网格动画（支持多通道） |
+
+### 通用参数
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `--generator <名称>` | — | **必需** 生成器名称 |
+| `--rule <规则>` | — | 规则号或预设名 |
+| `--seed <数值>` | `42` | 随机种子 |
+| `--steps <数值>` | `200` | 演化步数（0=无限） |
+| `--width <数值>` | `128` | 1D 网格宽度 |
+| `--rows <数值>` | `64` | 2D/3D 行数 |
+| `--cols <数值>` | `64` | 2D/3D 列数 |
+| `--depth <数值>` | `16` | 3D 深度 |
+| `--speed <毫秒>` | `100` | 动画速度（毫秒/帧） |
+| `--boundary <条件>` | `periodic` | 边界条件：`periodic` / `fixed` / `reflective` |
+| `--init <模式>` | `random` | 初始化模式：`random` / `single_center` |
+
+### NCA2D 专用参数
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `--d-state <数值>` | `10` | 离散状态数 |
+| `--n-groups <数值>` | `1` | 通道/组数（>1 时显示分组选择器） |
+| `--temperature <数值>` | `1.0` | 采样温度（0.0=确定性 argmax） |
+| `--hidden-dim <数值>` | `16` | 隐藏层维度 |
+| `--conv-features <数值>` | `4` | 卷积特征数 |
+| `--identity-bias <数值>` | `0.0` | 恒等偏置（高值使状态趋向不变） |
+
+### 使用示例
+
+```bash
+# 1D Rule 30 时空图
+structgen-rs view --generator ca --rule 30 --width 256 --steps 500
+
+# Conway's Game of Life
+structgen-rs view --generator ca2d --rule game_of_life --rows 64 --cols 64
+
+# WireWorld 电子模拟（4 状态颜色映射）
+structgen-rs view --generator ca2d --rule wireworld --rows 48 --cols 48
+
+# 3D Life 切片视图（可用深度滑块切换层）
+structgen-rs view --generator ca3d --depth 16 --rows 32 --cols 32
+
+# NCA2D 默认参数（10 状态 HSV 色轮）
+structgen-rs view --generator nca2d --rows 32 --cols 32 --steps 300
+
+# NCA2D 多通道（分组选择器自动出现）
+structgen-rs view --generator nca2d --d-state 5 --n-groups 3 --rows 24 --cols 24
+
+# NCA2D 自定义网络参数
+structgen-rs view --generator nca2d --temperature 0.5 --hidden-dim 32 --conv-features 8
+```
+
+### 渲染模式说明
+
+- **1D 时空图**：每行显示一个时间步的完整网格状态，纵向为时间轴，最多显示 2000 行（超出后自动滚动）
+- **2D 网格动画**：逐帧渲染当前时间步的 2D 网格，保持宽高比居中显示；NCA2D 多通道时上方出现分组选择滑块
+- **3D 切片视图**：逐帧渲染当前时间步的某个深度层切片，通过顶部深度滑块切换层
+
+---
+
 ## YAML 清单格式
 
 清单（Manifest）是描述整个生成任务的 YAML 文件，包含全局配置和任务列表两部分。
@@ -854,6 +939,13 @@ src/
 │   ├── shard.rs         # 分片算法
 │   ├── executor.rs      # 分片执行器
 │   └── seed.rs          # SHA2 种子派生
+├── view/                # 实时可视化（需 --features view）
+│   ├── app.rs           # egui 应用主逻辑
+│   ├── color.rs         # 多状态颜色映射
+│   ├── frame_buffer.rs  # 线程安全帧缓冲
+│   ├── render_1d.rs     # 1D 时空图渲染
+│   ├── render_2d.rs     # 2D 网格动画渲染
+│   └── render_3d.rs     # 3D 切片视图渲染
 └── metadata/            # 元数据与日志
     ├── types.rs         # 元数据结构
     ├── progress.rs      # 进度追踪

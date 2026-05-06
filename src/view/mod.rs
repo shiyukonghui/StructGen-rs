@@ -33,6 +33,18 @@ pub struct ViewArgs {
     pub speed: u64,
     pub boundary: String,
     pub init: String,
+    /// NCA2D: 离散状态数
+    pub d_state: u8,
+    /// NCA2D: 通道/组数
+    pub n_groups: u8,
+    /// NCA2D: 采样温度
+    pub temperature: f64,
+    /// NCA2D: 隐藏层维度
+    pub hidden_dim: usize,
+    /// NCA2D: 卷积特征数
+    pub conv_features: usize,
+    /// NCA2D: 恒等偏置
+    pub identity_bias: f64,
 }
 
 #[cfg(not(feature = "view"))]

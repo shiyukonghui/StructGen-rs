@@ -10,14 +10,18 @@ use crate::view::frame_buffer::CaFrameBuffer;
 pub struct Render2D {
     rows: usize,
     cols: usize,
+    n_groups: u8,
+    current_group: u8,
     texture: Option<TextureHandle>,
 }
 
 impl Render2D {
-    pub fn new(rows: usize, cols: usize) -> Self {
+    pub fn new(rows: usize, cols: usize, n_groups: u8) -> Self {
         Render2D {
             rows,
             cols,
+            n_groups,
+            current_group: 0,
             texture: None,
         }
     }
@@ -31,6 +35,20 @@ impl Render2D {
         current_step: usize,
         color_map: &CaColorMap,
     ) {
+        // 多通道时显示分组选择滑块
+        if self.n_groups > 1 {
+            ui.horizontal(|ui| {
+                ui.label("Group:");
+                let mut g = self.current_group as usize;
+                ui.add(
+                    eframe::egui::Slider::new(&mut g, 0..=(self.n_groups - 1) as usize)
+                        .text(""),
+                );
+                self.current_group = g as u8;
+                ui.label(format!("({}/{})", g + 1, self.n_groups));
+            });
+        }
+
         let frames = buffer.frames.lock().unwrap();
         let available_rect = ui.available_rect_before_wrap();
         let available = available_rect.size();
@@ -58,25 +76,35 @@ impl Render2D {
         let img_h = self.rows;
         let mut pixels = vec![Color32::BLACK; img_w * img_h];
 
-        for (idx, state) in frame.state.values.iter().enumerate() {
-            if idx >= img_w * img_h {
-                break;
-            }
-            let color = match state {
-                FrameState::Integer(v) => color_map.color_for_state(*v as u8),
-                FrameState::Bool(b) => {
-                    if *b {
-                        Color32::WHITE
-                    } else {
-                        Color32::BLACK
-                    }
-                }
-                _ => Color32::BLACK,
+        let n_groups_usize = self.n_groups as usize;
+        let current_group_usize = self.current_group as usize;
+        let slice_len = img_w * img_h;
+
+        for i in 0..slice_len {
+            // NCA2D 帧布局: values[(r*cols + c) * n_groups + g]
+            // CA2D 帧布局: values[r*cols + c] (n_groups == 1)
+            let src_idx = if n_groups_usize > 1 {
+                i * n_groups_usize + current_group_usize
+            } else {
+                i
             };
-            // values 按 row-major 排列: values[row * cols + col]
-            // ColorImage 按 (x, y) 即 (col, row) 排列: pixels[y * width + x]
-            let row = idx / img_w;
-            let col = idx % img_w;
+            let color = if src_idx < frame.state.values.len() {
+                match &frame.state.values[src_idx] {
+                    FrameState::Integer(v) => color_map.color_for_state(*v as u8),
+                    FrameState::Bool(b) => {
+                        if *b {
+                            Color32::WHITE
+                        } else {
+                            Color32::BLACK
+                        }
+                    }
+                    _ => Color32::BLACK,
+                }
+            } else {
+                Color32::BLACK
+            };
+            let row = i / img_w;
+            let col = i % img_w;
             pixels[row * img_w + col] = color;
         }
 

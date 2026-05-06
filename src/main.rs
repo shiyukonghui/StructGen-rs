@@ -131,7 +131,7 @@ pub enum Commands {
 /// View 子命令参数
 #[derive(Parser, Debug, Clone)]
 pub struct ViewCliArgs {
-    /// 生成器名称: ca | ca2d | ca3d
+    /// 生成器名称: ca | ca2d | ca3d | nca2d
     #[arg(short, long)]
     pub generator: String,
 
@@ -174,6 +174,30 @@ pub struct ViewCliArgs {
     /// 初始化模式: random | single_center
     #[arg(long, default_value = "random")]
     pub init: String,
+
+    /// NCA2D: 离散状态数
+    #[arg(long, default_value = "10")]
+    pub d_state: u8,
+
+    /// NCA2D: 通道/组数
+    #[arg(long, default_value = "1")]
+    pub n_groups: u8,
+
+    /// NCA2D: 采样温度
+    #[arg(long, default_value = "1.0")]
+    pub temperature: f64,
+
+    /// NCA2D: 隐藏层维度
+    #[arg(long, default_value = "16")]
+    pub hidden_dim: usize,
+
+    /// NCA2D: 卷积特征数
+    #[arg(long, default_value = "4")]
+    pub conv_features: usize,
+
+    /// NCA2D: 恒等偏置
+    #[arg(long, default_value = "0.0")]
+    pub identity_bias: f64,
 }
 
 impl From<ViewCliArgs> for view::ViewArgs {
@@ -190,6 +214,12 @@ impl From<ViewCliArgs> for view::ViewArgs {
             speed: args.speed,
             boundary: args.boundary,
             init: args.init,
+            d_state: args.d_state,
+            n_groups: args.n_groups,
+            temperature: args.temperature,
+            hidden_dim: args.hidden_dim,
+            conv_features: args.conv_features,
+            identity_bias: args.identity_bias,
         }
     }
 }

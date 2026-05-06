@@ -12,7 +12,7 @@ use crate::core::frame::SequenceFrame;
 #[derive(Debug, Clone)]
 pub enum CaDimension {
     OneD { width: usize },
-    TwoD { rows: usize, cols: usize, d_state: u8 },
+    TwoD { rows: usize, cols: usize, d_state: u8, n_groups: u8 },
     ThreeD { depth: usize, rows: usize, cols: usize, d_state: u8 },
 }
 

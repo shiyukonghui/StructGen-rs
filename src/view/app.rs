@@ -44,7 +44,7 @@ impl CaViewApp {
     ) -> Self {
         let renderer = match &frame_buffer.dimension {
             CaDimension::OneD { width } => Renderer::OneD(Render1D::new(*width)),
-            CaDimension::TwoD { rows, cols, .. } => Renderer::TwoD(Render2D::new(*rows, *cols)),
+            CaDimension::TwoD { rows, cols, n_groups, .. } => Renderer::TwoD(Render2D::new(*rows, *cols, *n_groups)),
             CaDimension::ThreeD { depth, rows, cols, .. } => {
                 Renderer::ThreeD(Render3D::new(*depth, *rows, *cols))
             }
@@ -110,8 +110,12 @@ impl eframe::App for CaViewApp {
                 ui.separator();
                 let dim_info = match &self.frame_buffer.dimension {
                     CaDimension::OneD { width } => format!("1D (w={})", width),
-                    CaDimension::TwoD { rows, cols, d_state } => {
-                        format!("2D ({}×{}, d={})", rows, cols, d_state)
+                    CaDimension::TwoD { rows, cols, d_state, n_groups } => {
+                        if *n_groups > 1 {
+                            format!("2D ({}×{}, d={}, g={})", rows, cols, d_state, n_groups)
+                        } else {
+                            format!("2D ({}×{}, d={})", rows, cols, d_state)
+                        }
                     }
                     CaDimension::ThreeD { depth, rows, cols, d_state } => {
                         format!("3D ({}×{}×{}, d={})", depth, rows, cols, d_state)
@@ -301,6 +305,33 @@ fn build_gen_params(args: &ViewArgs) -> Result<GenParams, String> {
                 cols: args.cols,
             });
         }
+        "nca2d" | "neural_cellular_automaton_2d" => {
+            extensions.insert(
+                "rows".into(),
+                serde_json::Value::Number(args.rows.into()),
+            );
+            extensions.insert(
+                "cols".into(),
+                serde_json::Value::Number(args.cols.into()),
+            );
+            extensions.insert("d_state".into(), serde_json::json!(args.d_state));
+            extensions.insert("n_groups".into(), serde_json::json!(args.n_groups));
+            extensions.insert("temperature".into(), serde_json::json!(args.temperature));
+            extensions.insert(
+                "hidden_dim".into(),
+                serde_json::Value::Number(args.hidden_dim.into()),
+            );
+            extensions.insert(
+                "conv_features".into(),
+                serde_json::Value::Number(args.conv_features.into()),
+            );
+            extensions.insert("identity_bias".into(), serde_json::json!(args.identity_bias));
+            grid_size = Some(GridSize {
+                rows: args.rows,
+                cols: args.cols,
+            });
+            grid_size_3d = None;
+        }
         _ => {
             grid_size = None;
             grid_size_3d = None;
@@ -323,6 +354,7 @@ fn infer_dimension(args: &ViewArgs) -> Result<CaDimension, String> {
             rows: args.rows,
             cols: args.cols,
             d_state: infer_d_state(args),
+            n_groups: 1,
         }),
         "ca3d" | "cellular_automaton_3d" => Ok(CaDimension::ThreeD {
             depth: args.depth,
@@ -330,8 +362,14 @@ fn infer_dimension(args: &ViewArgs) -> Result<CaDimension, String> {
             cols: args.cols,
             d_state: infer_d_state(args),
         }),
+        "nca2d" | "neural_cellular_automaton_2d" => Ok(CaDimension::TwoD {
+            rows: args.rows,
+            cols: args.cols,
+            d_state: args.d_state,
+            n_groups: args.n_groups,
+        }),
         _ => Err(format!(
-            "unknown generator '{}' for CA view (expected: ca, ca2d, ca3d)",
+            "unknown generator '{}' for CA view (expected: ca, ca2d, ca3d, nca2d)",
             args.generator
         )),
     }
@@ -339,6 +377,11 @@ fn infer_dimension(args: &ViewArgs) -> Result<CaDimension, String> {
 
 /// 推断状态数（从规则参数推断，默认为2）
 fn infer_d_state(args: &ViewArgs) -> u8 {
+    // NCA2D 使用显式 d_state 参数
+    if args.generator == "nca2d" || args.generator == "neural_cellular_automaton_2d" {
+        return args.d_state;
+    }
+    // CA 系列从规则名推断
     if let Some(rule) = &args.rule {
         match rule.as_str() {
             "wireworld" => 4,
