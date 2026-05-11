@@ -1,0 +1,358 @@
+# ============================================================
+# StructGen-rs 批量数据生成清单
+# 19 种元胞自动机规则，每种 1,200,000 条样本
+# 输出格式: Npy（NumPy 兼容，便于模型训练直接加载）
+# ============================================================
+
+global:
+  output_dir: "F:/RustProjects/StructGen-rs/output_ca_120w"
+  default_format: "Npy"
+  num_threads: 8
+  stream_write: true
+  shard_max_sequences: 10000
+
+tasks:
+
+  # ============================================================
+  # 1D 元胞自动机（5 种）
+  # ============================================================
+
+  - name: "ca1d_rule30"
+    generator: "ca"
+    params:
+      seq_length: 128
+      extensions:
+        rule: 30
+        width: 128
+        boundary: "periodic"
+    count: 1200000
+    seed: 1001
+    pipeline: []
+    output_format: "Npy"
+
+  - name: "ca1d_rule54"
+    generator: "ca"
+    params:
+      seq_length: 128
+      extensions:
+        rule: 54
+        width: 128
+        boundary: "periodic"
+    count: 1200000
+    seed: 1002
+    pipeline: []
+    output_format: "Npy"
+
+  - name: "ca1d_rule90"
+    generator: "ca"
+    params:
+      seq_length: 128
+      extensions:
+        rule: 90
+        width: 128
+        boundary: "periodic"
+    count: 1200000
+    seed: 1003
+    pipeline: []
+    output_format: "Npy"
+
+  - name: "ca1d_rule110"
+    generator: "ca"
+    params:
+      seq_length: 128
+      extensions:
+        rule: 110
+        width: 128
+        boundary: "periodic"
+    count: 1200000
+    seed: 1004
+    pipeline: []
+    output_format: "Npy"
+
+  - name: "ca1d_rule184"
+    generator: "ca"
+    params:
+      seq_length: 128
+      extensions:
+        rule: 184
+        width: 128
+        boundary: "periodic"
+    count: 1200000
+    seed: 1005
+    pipeline: []
+    output_format: "Npy"
+
+  # ============================================================
+  # 2D 元胞自动机（10 种）
+  # ============================================================
+
+  - name: "ca2d_game_of_life"
+    generator: "ca2d"
+    params:
+      seq_length: 64
+      extensions:
+        rule_type: "lifelike"
+        birth: [3]
+        survival: [2, 3]
+        d_state: 2
+        rows: 32
+        cols: 32
+        boundary: "periodic"
+        neighborhood: "moore"
+        init_mode: "random"
+    count: 1200000
+    seed: 2001
+    pipeline: []
+    output_format: "Npy"
+
+  - name: "ca2d_highlife"
+    generator: "ca2d"
+    params:
+      seq_length: 64
+      extensions:
+        rule_type: "lifelike"
+        birth: [3, 6]
+        survival: [2, 3]
+        d_state: 2
+        rows: 32
+        cols: 32
+        boundary: "periodic"
+        neighborhood: "moore"
+        init_mode: "random"
+    count: 1200000
+    seed: 2002
+    pipeline: []
+    output_format: "Npy"
+
+  - name: "ca2d_day_night"
+    generator: "ca2d"
+    params:
+      seq_length: 64
+      extensions:
+        rule_type: "lifelike"
+        birth: [3, 6, 7, 8]
+        survival: [3, 4, 6, 7, 8]
+        d_state: 2
+        rows: 32
+        cols: 32
+        boundary: "periodic"
+        neighborhood: "moore"
+        init_mode: "random"
+    count: 1200000
+    seed: 2003
+    pipeline: []
+    output_format: "Npy"
+
+  - name: "ca2d_seeds"
+    generator: "ca2d"
+    params:
+      seq_length: 64
+      extensions:
+        rule_type: "lifelike"
+        birth: [2]
+        survival: []
+        d_state: 2
+        rows: 32
+        cols: 32
+        boundary: "periodic"
+        neighborhood: "moore"
+        init_mode: "random"
+    count: 1200000
+    seed: 2004
+    pipeline: []
+    output_format: "Npy"
+
+  - name: "ca2d_diamoeba"
+    generator: "ca2d"
+    params:
+      seq_length: 64
+      extensions:
+        rule_type: "lifelike"
+        birth: [3, 5, 6, 7, 8]
+        survival: [5, 6, 7, 8]
+        d_state: 2
+        rows: 32
+        cols: 32
+        boundary: "periodic"
+        neighborhood: "moore"
+        init_mode: "random"
+    count: 1200000
+    seed: 2005
+    pipeline: []
+    output_format: "Npy"
+
+  - name: "ca2d_replicator"
+    generator: "ca2d"
+    params:
+      seq_length: 64
+      extensions:
+        rule_type: "lifelike"
+        birth: [1, 3, 5, 7]
+        survival: [1, 3, 5, 7]
+        d_state: 2
+        rows: 32
+        cols: 32
+        boundary: "periodic"
+        neighborhood: "moore"
+        init_mode: "random"
+    count: 1200000
+    seed: 2006
+    pipeline: []
+    output_format: "Npy"
+
+  - name: "ca2d_maze"
+    generator: "ca2d"
+    params:
+      seq_length: 64
+      extensions:
+        rule_type: "lifelike"
+        birth: [3]
+        survival: [1, 2, 3, 4, 5]
+        d_state: 2
+        rows: 32
+        cols: 32
+        boundary: "periodic"
+        neighborhood: "moore"
+        init_mode: "random"
+    count: 1200000
+    seed: 2007
+    pipeline: []
+    output_format: "Npy"
+
+  - name: "ca2d_wireworld"
+    generator: "ca2d"
+    params:
+      seq_length: 64
+      extensions:
+        rule_type: "wireworld"
+        d_state: 4
+        rows: 32
+        cols: 32
+        boundary: "periodic"
+        neighborhood: "moore"
+        init_mode: "random"
+    count: 1200000
+    seed: 2008
+    pipeline: []
+    output_format: "Npy"
+
+  - name: "ca2d_cyclic"
+    generator: "ca2d"
+    params:
+      seq_length: 64
+      extensions:
+        rule_type: "cyclic"
+        n_states: 14
+        threshold: 1
+        d_state: 14
+        rows: 32
+        cols: 32
+        boundary: "periodic"
+        neighborhood: "moore"
+        init_mode: "random"
+    count: 1200000
+    seed: 2009
+    pipeline: []
+    output_format: "Npy"
+
+  - name: "ca2d_ameyalli"
+    generator: "ca2d"
+    params:
+      seq_length: 64
+      extensions:
+        rule_type: "hensel"
+        hensel_notation: "B2ci3ar4krtz5cq6c7ce/S01e2ek3qj4kt5ceayq6cki7c8"
+        d_state: 2
+        rows: 32
+        cols: 32
+        boundary: "periodic"
+        neighborhood: "moore"
+        init_mode: "random"
+    count: 1200000
+    seed: 2010
+    pipeline: []
+    output_format: "Npy"
+
+  # ============================================================
+  # 3D 元胞自动机（3 种）
+  # ============================================================
+
+  - name: "ca3d_life"
+    generator: "ca3d"
+    params:
+      seq_length: 32
+      extensions:
+        rule_type: "lifelike"
+        birth: [5, 6, 7]
+        survival: [5, 6]
+        d_state: 2
+        depth: 8
+        rows: 8
+        cols: 8
+        boundary: "periodic"
+        neighborhood: "moore"
+        init_mode: "random"
+    count: 1200000
+    seed: 3001
+    pipeline: []
+    output_format: "Npy"
+
+  - name: "ca3d_cyclic"
+    generator: "ca3d"
+    params:
+      seq_length: 32
+      extensions:
+        rule_type: "cyclic"
+        n_states: 14
+        threshold: 1
+        d_state: 14
+        depth: 8
+        rows: 8
+        cols: 8
+        boundary: "periodic"
+        neighborhood: "moore"
+        init_mode: "random"
+    count: 1200000
+    seed: 3002
+    pipeline: []
+    output_format: "Npy"
+
+  - name: "ca3d_fredkin"
+    generator: "ca3d"
+    params:
+      seq_length: 32
+      extensions:
+        rule_type: "fredkin"
+        d_state: 2
+        depth: 8
+        rows: 8
+        cols: 8
+        boundary: "periodic"
+        neighborhood: "moore"
+        init_mode: "random"
+    count: 1200000
+    seed: 3003
+    pipeline: []
+    output_format: "Npy"
+
+  # ============================================================
+  # NCA2D 神经元胞自动机（1 种）
+  # ============================================================
+
+  - name: "nca2d_default"
+    generator: "nca2d"
+    params:
+      seq_length: 64
+      extensions:
+        d_state: 10
+        n_groups: 1
+        rows: 12
+        cols: 12
+        identity_bias: 0.0
+        temperature: 1.0
+        hidden_dim: 16
+        conv_features: 4
+    count: 1200000
+    seed: 4001
+    pipeline: []
+    output_format: "Npy"
