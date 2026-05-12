@@ -1,0 +1,110 @@
+# CA3D 训练格式配置示例
+# 本配置展示如何将 CA3D 数据转换为适合模型训练的格式
+# 由于 CA3D 是 3D 网格数据，我们使用展平方式和基础处理器
+
+global:
+  output_dir: "tests/output/gen_ca3d_training"
+  default_format: "Parquet"
+
+tasks:
+  - name: "ca3d_life_3d_training"
+    generator: "ca3d"
+    params:
+      seq_length: 30
+      extensions:
+        rule_type: "lifelike"
+        birth: [5, 6, 7]
+        survival: [5, 6]
+        d_state: 2
+        depth: 8
+        rows: 8
+        cols: 8
+        boundary: "periodic"
+        neighborhood: "moore"
+        init_mode: "random"
+    count: 10
+    seed: 42
+    pipeline:
+      - name: "normalizer"
+        config:
+          max_val: 1
+          method: "Linear"
+      - name: "sequence_stitcher"
+        config:
+          frames_per_sequence: 10
+          add_sequence_start: true
+          add_sequence_end: true
+          start_token: 10000
+          end_token: 10001
+      - name: "batch_collector"
+        config:
+          batch_size: 5
+          num_frames: 10
+    output_format: "Parquet"
+
+  - name: "ca3d_cyclic_training"
+    generator: "ca3d"
+    params:
+      seq_length: 30
+      extensions:
+        rule_type: "cyclic"
+        n_states: 4
+        threshold: 1
+        depth: 8
+        rows: 8
+        cols: 8
+        boundary: "periodic"
+        neighborhood: "moore"
+        init_mode: "random"
+    count: 10
+    seed: 100
+    pipeline:
+      - name: "normalizer"
+        config:
+          max_val: 3
+          method: "Linear"
+      - name: "sequence_stitcher"
+        config:
+          frames_per_sequence: 10
+          add_sequence_start: true
+          add_sequence_end: true
+          start_token: 10000
+          end_token: 10001
+      - name: "batch_collector"
+        config:
+          batch_size: 5
+          num_frames: 10
+    output_format: "Parquet"
+
+  - name: "ca3d_fredkin_training"
+    generator: "ca3d"
+    params:
+      seq_length: 30
+      extensions:
+        rule_type: "fredkin"
+        d_state: 2
+        depth: 8
+        rows: 8
+        cols: 8
+        boundary: "periodic"
+        neighborhood: "moore"
+        init_mode: "random"
+    count: 10
+    seed: 200
+    pipeline:
+      - name: "normalizer"
+        config:
+          max_val: 1
+          method: "Linear"
+      - name: "sequence_stitcher"
+        config:
+          frames_per_sequence: 10
+          add_sequence_start: true
+          add_sequence_end: true
+          start_token: 10000
+          end_token: 10001
+      - name: "batch_collector"
+        config:
+          batch_size: 5
+          num_frames: 10
+    output_format: "Parquet"

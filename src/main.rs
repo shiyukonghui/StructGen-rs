@@ -25,11 +25,13 @@ use std::sync::{Arc, Once};
 use chrono::Utc;
 use clap::{Parser, Subcommand, ValueEnum};
 
-use crate::core::{CoreResult, OutputFormat};
+use serde_json::Value;
+
+use crate::core::{CoreError, CoreResult, OutputFormat};
 use crate::generators::register_all as register_all_generators;
 use crate::metadata::{init_logger, write_metadata, ProgressTracker};
 use crate::pipeline::register_all as register_all_processors;
-use crate::sink::{BinaryAdapter, NpyAdapter, ParquetAdapter, SinkAdapter, TextAdapter};
+use crate::sink::{BinaryAdapter, NpyAdapter, NpyBatchAdapter, NpyBatchConfig, ParquetAdapter, SinkAdapter, TextAdapter};
 
 // ============================================================================
 // 退出码常量
@@ -60,6 +62,8 @@ pub enum CliFormat {
     Binary,
     /// NumPy .npy 格式
     Npy,
+    /// NumPy 批量格式
+    NpyBatch,
 }
 
 impl From<CliFormat> for OutputFormat {
@@ -69,6 +73,7 @@ impl From<CliFormat> for OutputFormat {
             CliFormat::Text => OutputFormat::Text,
             CliFormat::Binary => OutputFormat::Binary,
             CliFormat::Npy => OutputFormat::Npy,
+            CliFormat::NpyBatch => OutputFormat::NpyBatch,
         }
     }
 }
@@ -229,12 +234,31 @@ impl From<ViewCliArgs> for view::ViewArgs {
 // ============================================================================
 
 /// 创建输出适配器：将 OutputFormat 映射到具体适配器实现
-fn create_adapter(format: OutputFormat) -> CoreResult<Box<dyn SinkAdapter>> {
+///
+/// # 参数
+/// - `format`: 输出格式
+/// - `config`: 适配器配置（NpyBatch 格式必需，其他格式忽略）
+///
+/// # 返回
+/// 返回 SinkAdapter trait 对象
+fn create_adapter(format: OutputFormat, config: &Value) -> CoreResult<Box<dyn SinkAdapter>> {
     match format {
         OutputFormat::Parquet => Ok(Box::new(ParquetAdapter::new())),
         OutputFormat::Text => Ok(Box::new(TextAdapter::new())),
         OutputFormat::Binary => Ok(Box::new(BinaryAdapter::new())),
         OutputFormat::Npy => Ok(Box::new(NpyAdapter::new())),
+        OutputFormat::NpyBatch => {
+            // NpyBatch 格式需要配置参数
+            if config.is_null() {
+                return Err(CoreError::InvalidParams(
+                    "NpyBatch 输出格式需要在 extensions.sink_config 中提供配置".into(),
+                ));
+            }
+            // 反序列化配置
+            let npy_config = serde_json::from_value::<NpyBatchConfig>(config.clone())
+                .map_err(|e| CoreError::SerializationError(format!("NpyBatch 配置解析失败: {}", e)))?;
+            Ok(Box::new(NpyBatchAdapter::new(npy_config)))
+        }
     }
 }
 
@@ -746,6 +770,8 @@ mod tests {
         assert_eq!(OutputFormat::from(CliFormat::Parquet), OutputFormat::Parquet);
         assert_eq!(OutputFormat::from(CliFormat::Text), OutputFormat::Text);
         assert_eq!(OutputFormat::from(CliFormat::Binary), OutputFormat::Binary);
+        assert_eq!(OutputFormat::from(CliFormat::Npy), OutputFormat::Npy);
+        assert_eq!(OutputFormat::from(CliFormat::NpyBatch), OutputFormat::NpyBatch);
     }
 
     // ------------------------------------------------------------------
@@ -754,14 +780,39 @@ mod tests {
 
     #[test]
     fn test_create_adapter_factory() {
-        let adapter = create_adapter(OutputFormat::Text).unwrap();
+        // 测试基本格式（忽略 config 参数）
+        let adapter = create_adapter(OutputFormat::Text, &Value::Null).unwrap();
         assert_eq!(adapter.format(), OutputFormat::Text);
 
-        let adapter = create_adapter(OutputFormat::Parquet).unwrap();
+        let adapter = create_adapter(OutputFormat::Parquet, &Value::Null).unwrap();
         assert_eq!(adapter.format(), OutputFormat::Parquet);
 
-        let adapter = create_adapter(OutputFormat::Binary).unwrap();
+        let adapter = create_adapter(OutputFormat::Binary, &Value::Null).unwrap();
         assert_eq!(adapter.format(), OutputFormat::Binary);
+
+        let adapter = create_adapter(OutputFormat::Npy, &Value::Null).unwrap();
+        assert_eq!(adapter.format(), OutputFormat::Npy);
+    }
+
+    #[test]
+    fn test_create_adapter_npy_batch_requires_config() {
+        // NpyBatch 格式必需配置，否则应返回错误
+        let result = create_adapter(OutputFormat::NpyBatch, &Value::Null);
+        assert!(result.is_err());
+        if let Err(err) = result {
+            assert!(err.to_string().contains("sink_config"));
+        }
+    }
+
+    #[test]
+    fn test_create_adapter_npy_batch_with_valid_config() {
+        // 提供有效配置应成功创建适配器
+        let config = serde_json::json!({
+            "batch_size": 2,
+            "num_frames": 3
+        });
+        let adapter = create_adapter(OutputFormat::NpyBatch, &config).unwrap();
+        assert_eq!(adapter.format(), OutputFormat::Npy);
     }
 
     // ------------------------------------------------------------------

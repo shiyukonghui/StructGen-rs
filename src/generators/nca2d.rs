@@ -43,7 +43,7 @@ fn default_identity_bias() -> f64 {
     0.0
 }
 fn default_temperature() -> f64 {
-    1.0
+    0.0
 }
 fn default_hidden_dim() -> usize {
     16
@@ -880,8 +880,8 @@ mod tests {
     }
 
     #[test]
-    fn test_default_temperature_is_one() {
+    fn test_default_temperature_is_zero() {
         let params = Nca2dParams::default();
-        assert!((params.temperature - 1.0).abs() < 1e-10, "Default temperature should be 1.0");
+        assert!((params.temperature - 0.0).abs() < 1e-10, "Default temperature should be 0.0");
     }
 }

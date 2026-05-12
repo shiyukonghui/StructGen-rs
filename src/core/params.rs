@@ -17,6 +17,8 @@ pub enum OutputFormat {
     Binary,
     /// NumPy .npy 格式（Python 友好）
     Npy,
+    /// NumPy 批量格式 (B,T,H,W,C)，配合 BatchCollector 使用
+    NpyBatch,
 }
 
 /// 日志级别枚举

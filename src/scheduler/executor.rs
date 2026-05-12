@@ -8,7 +8,7 @@ use std::panic::AssertUnwindSafe;
 
 use serde_json::Value;
 
-use crate::core::{CoreError, CoreResult, OutputFormat, SequenceFrame, GeneratorRegistry};
+use crate::core::{CoreResult, OutputFormat, SequenceFrame, GeneratorRegistry};
 use crate::sink::{OutputConfig, OutputStats};
 use crate::pipeline::ProcessorRegistry;
 
@@ -90,8 +90,16 @@ fn execute_shard_inner(
     // 2. 确定输出格式
     let format = task.output_format.unwrap_or(OutputFormat::Parquet);
 
-    // 3. 创建并初始化输出适配器
-    let mut adapter = adapter_factory(format)?;
+    // 3. 获取 sink 配置（用于 NpyBatch 等需要配置的输出格式）
+    let sink_config = task
+        .params
+        .extensions
+        .get("sink_config")
+        .cloned()
+        .unwrap_or(Value::Null);
+
+    // 4. 创建并初始化输出适配器
+    let mut adapter = adapter_factory(format, &sink_config)?;
     adapter.open(output_dir, &task.name, shard.shard_idx, shard.seed, output_config)?;
 
     // 4. 多样本循环：每个样本独立生成一条轨迹
@@ -152,7 +160,7 @@ fn build_pipeline_chain(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::GenParams;
+    use crate::core::{CoreError, GenParams};
     use crate::generators;
     use crate::sink::SinkAdapter;
     use crate::pipeline;
@@ -197,7 +205,7 @@ mod tests {
         }
     }
 
-    fn mock_adapter_factory(format: OutputFormat) -> CoreResult<Box<dyn SinkAdapter>> {
+    fn mock_adapter_factory(format: OutputFormat, _config: &Value) -> CoreResult<Box<dyn SinkAdapter>> {
         match format {
             OutputFormat::Text => Ok(Box::new(MockAdapter::new())),
             _ => Err(CoreError::ConfigError("仅支持 Text 格式的 mock 适配器".into())),

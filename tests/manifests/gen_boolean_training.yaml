@@ -1,0 +1,86 @@
+# BooleanNetwork 训练格式配置示例
+# 本配置展示如何将 BooleanNetwork 数据转换为适合模型训练的格式
+# BooleanNetwork 产生布尔值序列，我们使用基础处理器进行转换
+
+global:
+  output_dir: "tests/output/gen_boolean_training"
+  default_format: "Parquet"
+
+tasks:
+  - name: "boolean_network_small_training"
+    generator: "boolean_network"
+    params:
+      seq_length: 50
+      extensions:
+        num_nodes: 16
+    count: 10
+    seed: 42
+    pipeline:
+      - name: "normalizer"
+        config:
+          max_val: 1
+          method: "Linear"
+      - name: "sequence_stitcher"
+        config:
+          frames_per_sequence: 10
+          add_sequence_start: true
+          add_sequence_end: true
+          start_token: 10000
+          end_token: 10001
+      - name: "batch_collector"
+        config:
+          batch_size: 5
+          num_frames: 10
+    output_format: "Parquet"
+
+  - name: "boolean_network_medium_training"
+    generator: "boolean_network"
+    params:
+      seq_length: 50
+      extensions:
+        num_nodes: 32
+    count: 10
+    seed: 100
+    pipeline:
+      - name: "normalizer"
+        config:
+          max_val: 1
+          method: "Linear"
+      - name: "sequence_stitcher"
+        config:
+          frames_per_sequence: 10
+          add_sequence_start: true
+          add_sequence_end: true
+          start_token: 10000
+          end_token: 10001
+      - name: "batch_collector"
+        config:
+          batch_size: 5
+          num_frames: 10
+    output_format: "Parquet"
+
+  - name: "boolean_network_large_training"
+    generator: "boolean_network"
+    params:
+      seq_length: 50
+      extensions:
+        num_nodes: 64
+    count: 10
+    seed: 200
+    pipeline:
+      - name: "normalizer"
+        config:
+          max_val: 1
+          method: "Linear"
+      - name: "sequence_stitcher"
+        config:
+          frames_per_sequence: 10
+          add_sequence_start: true
+          add_sequence_end: true
+          start_token: 10000
+          end_token: 10001
+      - name: "batch_collector"
+        config:
+          batch_size: 5
+          num_frames: 10
+    output_format: "Parquet"

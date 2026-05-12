@@ -1,0 +1,119 @@
+# CA2D 训练格式配置示例
+# 本配置展示如何将 CA2D 数据转换为适合模型训练的格式
+# 使用 PatchTokenizer、SequenceStitcher 和 BatchCollector 处理器
+
+global:
+  output_dir: "tests/output/gen_ca2d_training"
+  default_format: "Parquet"
+
+tasks:
+  - name: "ca2d_conway_life_training"
+    generator: "ca2d"
+    params:
+      seq_length: 50
+      extensions:
+        rule_type: "lifelike"
+        birth: [3]
+        survival: [2, 3]
+        d_state: 2
+        rows: 12
+        cols: 12
+        boundary: "periodic"
+        neighborhood: "moore"
+        init_mode: "random"
+    count: 10
+    seed: 42
+    pipeline:
+      - name: "patch_tokenizer"
+        config:
+          patch: 3
+          num_colors: 2
+          rows: 12
+          cols: 12
+          n_groups: 1
+      - name: "sequence_stitcher"
+        config:
+          frames_per_sequence: 10
+          add_sequence_start: true
+          add_sequence_end: true
+          start_token: 10000
+          end_token: 10001
+      - name: "batch_collector"
+        config:
+          batch_size: 5
+          num_frames: 10
+    output_format: "Parquet"
+
+  - name: "ca2d_highlife_training"
+    generator: "ca2d"
+    params:
+      seq_length: 50
+      extensions:
+        rule_type: "lifelike"
+        birth: [3, 6]
+        survival: [2, 3]
+        d_state: 2
+        rows: 12
+        cols: 12
+        boundary: "periodic"
+        neighborhood: "moore"
+        init_mode: "random"
+    count: 10
+    seed: 100
+    pipeline:
+      - name: "patch_tokenizer"
+        config:
+          patch: 3
+          num_colors: 2
+          rows: 12
+          cols: 12
+          n_groups: 1
+      - name: "sequence_stitcher"
+        config:
+          frames_per_sequence: 10
+          add_sequence_start: true
+          add_sequence_end: true
+          start_token: 10000
+          end_token: 10001
+      - name: "batch_collector"
+        config:
+          batch_size: 5
+          num_frames: 10
+    output_format: "Parquet"
+
+  - name: "ca2d_day_night_training"
+    generator: "ca2d"
+    params:
+      seq_length: 50
+      extensions:
+        rule_type: "lifelike"
+        birth: [3, 6, 7, 8]
+        survival: [3, 4, 6, 7, 8]
+        d_state: 2
+        rows: 12
+        cols: 12
+        boundary: "periodic"
+        neighborhood: "moore"
+        init_mode: "random"
+    count: 10
+    seed: 200
+    pipeline:
+      - name: "patch_tokenizer"
+        config:
+          patch: 3
+          num_colors: 2
+          rows: 12
+          cols: 12
+          n_groups: 1
+      - name: "sequence_stitcher"
+        config:
+          frames_per_sequence: 10
+          add_sequence_start: true
+          add_sequence_end: true
+          start_token: 10000
+          end_token: 10001
+      - name: "batch_collector"
+        config:
+          batch_size: 5
+          num_frames: 10
+    output_format: "Parquet"

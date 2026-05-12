@@ -6,21 +6,24 @@
 //! - Parquet：列式存储，适合大规模数据分析
 //! - Text：Unicode 文本，适合语言模型 DataLoader 直接加载
 //! - Binary：紧凑二进制，适合 mmap 随机访问
+//! - NpyBatch：NumPy 批量数据，适合 Python 训练流程
 
 pub mod adapter;
 pub mod binary;
 pub mod factory;
 pub mod npy;
+pub mod npy_batch;
 pub mod parquet;
 pub mod text;
 
 // 重导出适配器类型
-pub use adapter::{format_output_filename, OutputConfig, OutputStats, SinkAdapter};
+pub use adapter::{OutputConfig, OutputStats, SinkAdapter};
 // 重导出工厂类型
 pub use factory::SinkAdapterFactory;
 // 重导出具体适配器实现
 pub use binary::BinaryAdapter;
 pub use npy::NpyAdapter;
+pub use npy_batch::{NpyBatchAdapter, NpyBatchConfig};
 pub use parquet::ParquetAdapter;
 pub use text::TextAdapter;
 

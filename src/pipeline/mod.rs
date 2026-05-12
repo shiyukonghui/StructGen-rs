@@ -11,6 +11,8 @@ pub mod diff_encoder;
 pub mod token_mapper;
 pub mod clip_stitcher;
 pub mod patch_tokenizer;
+pub mod sequence_stitcher;
+pub mod batch_collector;
 
 // 重导出公开类型
 pub use processor::{Processor, ProcessorFactory};
@@ -22,6 +24,8 @@ pub use diff_encoder::{DiffEncoder, DiffEncoderConfig, create_diff_encoder};
 pub use token_mapper::{TokenMapper, TokenMapperConfig, create_token_mapper};
 pub use clip_stitcher::{ClipStitcher, ClipStitcherConfig, create_clip_stitcher};
 pub use patch_tokenizer::{PatchTokenizer, PatchTokenizerConfig, create_patch_tokenizer};
+pub use sequence_stitcher::{SequenceStitcher, SequenceStitcherConfig, create_sequence_stitcher};
+pub use batch_collector::{BatchCollector, BatchCollectorConfig, BatchData, BatchSample, create_batch_collector};
 
 /// 向注册表中注册所有内置处理器
 ///
@@ -33,6 +37,8 @@ pub use patch_tokenizer::{PatchTokenizer, PatchTokenizerConfig, create_patch_tok
 /// - "token_mapper" — 令牌映射器
 /// - "clip_stitcher" — 序列截断拼接器
 /// - "patch_tokenizer" — Patch tokenization 处理器
+/// - "sequence_stitcher" — 序列串联处理器
+/// - "batch_collector" — 批量收集处理器
 pub fn register_all(registry: &mut ProcessorRegistry) -> crate::core::CoreResult<()> {
     registry.register("null", create_null_processor)?;
     registry.register("normalizer", create_normalizer)?;
@@ -41,6 +47,8 @@ pub fn register_all(registry: &mut ProcessorRegistry) -> crate::core::CoreResult
     registry.register("token_mapper", create_token_mapper)?;
     registry.register("clip_stitcher", create_clip_stitcher)?;
     registry.register("patch_tokenizer", create_patch_tokenizer)?;
+    registry.register("sequence_stitcher", create_sequence_stitcher)?;
+    registry.register("batch_collector", create_batch_collector)?;
     Ok(())
 }
 
@@ -176,6 +184,19 @@ mod tests {
                     "rows": 4,
                     "cols": 4,
                     "n_groups": 1
+                })
+            } else if name == "batch_collector" {
+                json!({
+                    "batch_size": 2,
+                    "num_frames": 3
+                })
+            } else if name == "sequence_stitcher" {
+                json!({
+                    "frames_per_sequence": 5,
+                    "add_sequence_start": true,
+                    "add_sequence_end": true,
+                    "start_token": 10000,
+                    "end_token": 10001
                 })
             } else {
                 json!(null)

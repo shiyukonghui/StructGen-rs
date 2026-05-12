@@ -80,6 +80,7 @@ mod tests {
     use crate::sink::SinkAdapter;
     use crate::generators;
     use crate::pipeline;
+    use serde_json::Value;
     use std::path::PathBuf;
     use std::sync::Mutex;
 
@@ -121,7 +122,7 @@ mod tests {
         }
     }
 
-    fn mock_adapter_factory(format: OutputFormat) -> CoreResult<Box<dyn SinkAdapter>> {
+    fn mock_adapter_factory(format: OutputFormat, _config: &Value) -> CoreResult<Box<dyn SinkAdapter>> {
         match format {
             OutputFormat::Text => Ok(Box::new(MockAdapter::new())),
             _ => Err(CoreError::ConfigError("仅支持 Text 格式的 mock 适配器".into())),
@@ -238,7 +239,6 @@ mod tests {
     #[test]
     fn test_run_manifest_fault_tolerance() {
         use std::collections::HashMap;
-        use serde_json::Value;
 
         // 创建一个包含一个会失败的生成器的注册表
         let mut gen_reg = GeneratorRegistry::new();
