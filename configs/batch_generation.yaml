@@ -1,0 +1,311 @@
+# 各生成器批量数据生成配置
+# 目标：每个生成器生成 10 batches × 1000 samples = 10000 samples
+# 注意：batch_collector 配置放在 pipeline_config 中，sink_config 用于 NpyBatchAdapter
+
+global:
+  output_dir: "output/batch_generation"
+  default_format: "NpyBatch"
+  num_threads: 8
+  log_level: "info"
+  shard_max_sequences: 10000
+
+tasks:
+  # ============================================================================
+  # NCA2D - 神经元胞自动机 2D
+  # ============================================================================
+  - name: "nca2d_batch"
+    generator: "nca2d"
+    output_format: "NpyBatch"
+    params:
+      seq_length: 10
+      extensions:
+        d_state: 10
+        n_groups: 1
+        rows: 12
+        cols: 12
+        temperature: 0.0
+        hidden_dim: 16
+        conv_features: 4
+        pipeline_config:
+          batch_collector:
+            batch_size: 1000
+            num_frames: 10
+        sink_config:
+          batch_size: 1000
+          num_frames: 10
+          rows: 12
+          cols: 12
+          channels: 10
+    count: 10000
+    seed: 1000
+    pipeline:
+      - "batch_collector"
+
+  # ============================================================================
+  # CA2D - 二维元胞自动机 (Game of Life)
+  # ============================================================================
+  - name: "ca2d_life_batch"
+    generator: "ca2d"
+    output_format: "NpyBatch"
+    params:
+      seq_length: 50
+      extensions:
+        rule_type: "lifelike"
+        birth: [3]
+        survival: [2, 3]
+        rows: 32
+        cols: 32
+        d_state: 2
+        boundary: "periodic"
+        pipeline_config:
+          batch_collector:
+            batch_size: 1000
+            num_frames: 50
+        sink_config:
+          batch_size: 1000
+          num_frames: 50
+          rows: 32
+          cols: 32
+          channels: 2
+    count: 10000
+    seed: 2000
+    pipeline:
+      - "batch_collector"
+
+  # ============================================================================
+  # CA2D - Maze 规则
+  # ============================================================================
+  - name: "ca2d_maze_batch"
+    generator: "ca2d"
+    output_format: "NpyBatch"
+    params:
+      seq_length: 50
+      extensions:
+        rule_type: "lifelike"
+        birth: [3]
+        survival: [1, 2, 3, 4, 5]
+        rows: 32
+        cols: 32
+        d_state: 2
+        boundary: "periodic"
+        pipeline_config:
+          batch_collector:
+            batch_size: 1000
+            num_frames: 50
+        sink_config:
+          batch_size: 1000
+          num_frames: 50
+          rows: 32
+          cols: 32
+          channels: 2
+    count: 10000
+    seed: 3000
+    pipeline:
+      - "batch_collector"
+
+  # ============================================================================
+  # CA2D - Cyclic CA
+  # ============================================================================
+  - name: "ca2d_cyclic_batch"
+    generator: "ca2d"
+    output_format: "NpyBatch"
+    params:
+      seq_length: 50
+      extensions:
+        rule_type: "cyclic"
+        n_states: 14
+        threshold: 1
+        rows: 32
+        cols: 32
+        d_state: 14
+        boundary: "periodic"
+        pipeline_config:
+          batch_collector:
+            batch_size: 1000
+            num_frames: 50
+        sink_config:
+          batch_size: 1000
+          num_frames: 50
+          rows: 32
+          cols: 32
+          channels: 14
+    count: 10000
+    seed: 4000
+    pipeline:
+      - "batch_collector"
+
+  # ============================================================================
+  # CA3D - 三维元胞自动机
+  # ============================================================================
+  - name: "ca3d_batch"
+    generator: "ca3d"
+    output_format: "NpyBatch"
+    params:
+      seq_length: 20
+      extensions:
+        rule_type: "lifelike"
+        birth: [5, 6, 7]
+        survival: [5, 6]
+        depth: 8
+        rows: 8
+        cols: 8
+        d_state: 2
+        pipeline_config:
+          batch_collector:
+            batch_size: 1000
+            num_frames: 20
+        sink_config:
+          batch_size: 1000
+          num_frames: 20
+          rows: 8
+          cols: 8
+          channels: 2
+    count: 10000
+    seed: 5000
+    pipeline:
+      - "batch_collector"
+
+  # ============================================================================
+  # CA - 一维元胞自动机 (Rule 30)
+  # ============================================================================
+  - name: "ca_rule30_batch"
+    generator: "ca"
+    output_format: "NpyBatch"
+    params:
+      seq_length: 100
+      extensions:
+        rule: 30
+        width: 100
+        pipeline_config:
+          batch_collector:
+            batch_size: 1000
+            num_frames: 100
+        sink_config:
+          batch_size: 1000
+          num_frames: 100
+          rows: 1
+          cols: 100
+          channels: 2
+    count: 10000
+    seed: 6000
+    pipeline:
+      - "batch_collector"
+
+  # ============================================================================
+  # CA - 一维元胞自动机 (Rule 110)
+  # ============================================================================
+  - name: "ca_rule110_batch"
+    generator: "ca"
+    output_format: "NpyBatch"
+    params:
+      seq_length: 100
+      extensions:
+        rule: 110
+        width: 100
+        pipeline_config:
+          batch_collector:
+            batch_size: 1000
+            num_frames: 100
+        sink_config:
+          batch_size: 1000
+          num_frames: 100
+          rows: 1
+          cols: 100
+          channels: 2
+    count: 10000
+    seed: 7000
+    pipeline:
+      - "batch_collector"
+
+  # ============================================================================
+  # Lorenz - 洛伦兹系统
+  # ============================================================================
+  - name: "lorenz_batch"
+    generator: "lorenz"
+    output_format: "NpyBatch"
+    params:
+      seq_length: 1000
+      extensions:
+        sigma: 10.0
+        rho: 28.0
+        beta: 2.6667
+        dt: 0.01
+        pipeline_config:
+          batch_collector:
+            batch_size: 1000
+            num_frames: 1000
+        sink_config:
+          batch_size: 1000
+          num_frames: 1000
+    count: 10000
+    seed: 8000
+    pipeline:
+      - "batch_collector"
+
+  # ============================================================================
+  # Logistic - 逻辑映射
+  # ============================================================================
+  - name: "logistic_batch"
+    generator: "logistic"
+    output_format: "NpyBatch"
+    params:
+      seq_length: 500
+      extensions:
+        r: 3.9
+        pipeline_config:
+          batch_collector:
+            batch_size: 1000
+            num_frames: 500
+        sink_config:
+          batch_size: 1000
+          num_frames: 500
+    count: 10000
+    seed: 9000
+    pipeline:
+      - "batch_collector"
+
+  # ============================================================================
+  # NBody - N体模拟
+  # ============================================================================
+  - name: "nbody_batch"
+    generator: "nbody"
+    output_format: "NpyBatch"
+    params:
+      seq_length: 200
+      extensions:
+        n_bodies: 5
+        dt: 0.01
+        integrator: "rk4"
+        pipeline_config:
+          batch_collector:
+            batch_size: 1000
+            num_frames: 200
+        sink_config:
+          batch_size: 1000
+          num_frames: 200
+    count: 10000
+    seed: 10000
+    pipeline:
+      - "batch_collector"
+
+  # ============================================================================
+  # BooleanNetwork - 布尔网络
+  # ============================================================================
+  - name: "boolean_network_batch"
+    generator: "boolean_network"
+    output_format: "NpyBatch"
+    params:
+      seq_length: 100
+      extensions:
+        n_nodes: 16
+        pipeline_config:
+          batch_collector:
+            batch_size: 1000
+            num_frames: 100
+        sink_config:
+          batch_size: 1000
+          num_frames: 100
+    count: 10000
+    seed: 12000
+    pipeline:
+      - "batch_collector"
