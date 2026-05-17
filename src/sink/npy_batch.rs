@@ -17,8 +17,8 @@ use super::adapter::{format_output_filename, OutputConfig, OutputStats, SinkAdap
 
 /// NPY 文件魔数
 const NPY_MAGIC: &[u8; 6] = b"\x93NUMPY";
-/// NPY 版本 1.0
-const NPY_VERSION: [u8; 2] = [0x01, 0x00];
+/// NPY 版本 2.0（支持 4 字节 header_len，可处理大 header）
+const NPY_VERSION: [u8; 2] = [0x02, 0x00];
 
 /// NpyBatchAdapter 配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -149,7 +149,7 @@ impl NpyBatchAdapter {
         Ok(())
     }
 
-    /// 构建 NPY v1.0 header
+    /// 构建 NPY v2.0 header
     fn build_npy_header(dtype: NpyDtype, shape: &[usize]) -> Vec<u8> {
         let descr = dtype.descr();
 
@@ -166,7 +166,7 @@ impl NpyBatchAdapter {
             descr, shape_str
         );
 
-        // NPY v1.0: prefix = magic(6) + version(2) + header_len(4) = 12
+        // NPY v2.0: prefix = magic(6) + version(2) + header_len(4) = 12
         // header_len 包含 padded header（以 \n 结尾）
         // 总长度 (12 + header_len) 必须是 64 的倍数
         let prefix_len = 6 + 2 + 4;
@@ -179,12 +179,12 @@ impl NpyBatchAdapter {
 
         // 在 \n 前插入空格 padding
         let padded_header = format!("{}{}\n", header_dict, " ".repeat(padding_needed));
-        let header_len = padded_header.len() as u32;
+        let header_len = padded_header.len() as u32;  // NPY v2.0 使用 u32
 
         let mut result = Vec::with_capacity(prefix_len + padded_header.len());
         result.extend_from_slice(NPY_MAGIC);
         result.extend_from_slice(&NPY_VERSION);
-        result.extend_from_slice(&header_len.to_le_bytes());
+        result.extend_from_slice(&header_len.to_le_bytes());  // 4 字节
         result.extend_from_slice(padded_header.as_bytes());
 
         result
@@ -207,11 +207,13 @@ impl NpyBatchAdapter {
         if let (Some(rows), Some(cols), Some(channels)) =
             (self.config.rows, self.config.cols, self.config.channels)
         {
-            // 每个 batch 包含 batch_size * num_frames * rows * cols * channels 个元素
-            // batches_written 表示写入的 batch 数量
-            // 总 shape: (batches_written * batch_size, num_frames, rows, cols, channels)
+            // 每个 frame 包含 num_frames * rows * cols * channels 个元素（一个样本）
+            // batches_written 表示写入的样本数量
+            // 从实际元素数计算样本数，确保 shape 与数据量匹配
+            let elements_per_sample = self.config.num_frames * rows * cols * channels;
+            let actual_samples = total_elements / elements_per_sample;
             vec![
-                self.batches_written as usize * self.config.batch_size,
+                actual_samples,
                 self.config.num_frames,
                 rows,
                 cols,
@@ -219,15 +221,16 @@ impl NpyBatchAdapter {
             ]
         } else {
             // 否则使用 (B, T, state_dim) 形状
-            // 从总元素数和批次数推断 state_dim
-            let elements_per_batch = self.config.batch_size * self.config.num_frames;
-            let state_dim = if elements_per_batch > 0 && self.batches_written > 0 {
-                total_elements / (self.batches_written as usize * elements_per_batch)
+            // 从总元素数推断 shape
+            let elements_per_sample = self.config.num_frames;
+            let actual_samples = total_elements / elements_per_sample;
+            let state_dim = if actual_samples > 0 {
+                total_elements / (actual_samples * self.config.num_frames)
             } else {
                 0
             };
             vec![
-                self.batches_written as usize * self.config.batch_size,
+                actual_samples,
                 self.config.num_frames,
                 state_dim,
             ]
@@ -481,8 +484,8 @@ mod tests {
             .open(tmp.path(), "grid", 0, 0, &default_output_config())
             .unwrap();
 
-        // 写入一个批量（2*2*3*3*1 = 18 个值）
-        let values: Vec<i64> = (0..18).collect();
+        // 写入一个批量（batch_size * num_frames * rows * cols * channels = 2*2*3*3*1 = 36 个值）
+        let values: Vec<i64> = (0..36).collect();
         let frame = make_batch_frame(0, values);
         adapter.write_frame(&frame).unwrap();
 
@@ -490,9 +493,10 @@ mod tests {
 
         // 验证 NPY header 中的 shape
         let raw = fs::read(&stats.output_path.unwrap()).unwrap();
+        // NPY v2.0: header_len 是 4 字节
         let header_len = u32::from_le_bytes(raw[8..12].try_into().unwrap()) as usize;
         let header_str = std::str::from_utf8(&raw[12..12 + header_len]).unwrap();
-        // shape 应为 (2, 2, 3, 3, 1)
+        // shape 应为 (2, 2, 3, 3, 1) - 2 个样本，每个样本 2 帧，3x3 网格，1 通道
         assert!(header_str.contains("'shape': (2, 2, 3, 3, 1)"));
     }
 
@@ -520,6 +524,7 @@ mod tests {
 
         // 验证 dtype 为 int32
         let raw = fs::read(&stats.output_path.unwrap()).unwrap();
+        // NPY v2.0: header_len 是 4 字节
         let header_len = u32::from_le_bytes(raw[8..12].try_into().unwrap()) as usize;
         let header_str = std::str::from_utf8(&raw[12..12 + header_len]).unwrap();
         assert!(header_str.contains("'descr': '<i4'"));
